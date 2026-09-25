@@ -14,6 +14,7 @@ Agent Flow is a project-level OpenCode control plane. A single primary Builder r
 | `.opencode/agents/` | Builder, Explore, Architect, Planner, and Reviewer contracts | Role prompts, model choice, permissions, gate outputs | Implementation or durable task state |
 | `.opencode/commands/` | User entry points into the Builder workflow | `/work`, `/checkpoint`, `/continue-task` templates | Independent orchestration logic |
 | `.opencode/plugins/stateful-compaction.js` | Preserve the active task across context compaction | Compaction hook and bounded checkpoint injection | General persistence or business logic |
+| Global OpenCode config (`~/.config/opencode/`, outside this repository) | Optional machine-wide deployment of the same workflow | Copies of agents, commands, and the plugin plus global compaction policy | Project source of truth, project default agent, or project task state |
 | `AGENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md` | Long-lived operating rules, boundaries, and accepted decisions | Stable cross-task knowledge | Current task transcripts |
 | `TASK.md`, `.opencode/state/CONTEXT.md` | Resumable task checkpoint and replaceable evidence capsule | Current progress and curated investigation evidence | Raw logs or full source copies |
 | `docs/` | Complete public tutorial website | Hand-authored HTML, CSS, JavaScript, `.nojekyll` | OpenCode runtime state, dependencies, or build output |
@@ -56,6 +57,8 @@ Source files and current verification results outrank all recorded state.
 - `docs/` is the sole website publication boundary. Its assets are document-relative, work under `file://` and `/agent_flow/`, and require no build step or external runtime dependency.
 - Core tutorial content and navigation remain usable without JavaScript; JavaScript adds isolated progressive enhancements only.
 - Pages deployment uses `main:/docs`; no generated deployment branch or checked-in Pages workflow is maintained.
+- Agent, command, and plugin definitions are location-independent. Installing the same files under `~/.config/opencode/` provides an explicit-opt-in global workflow; global config must not set `default_agent` or model defaults.
+- Compaction checkpoint injection is idempotent so global and project plugin scopes can load simultaneously without duplicate checkpoints.
 
 ## Quality Attributes
 

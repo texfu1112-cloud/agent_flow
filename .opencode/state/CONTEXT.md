@@ -1,50 +1,47 @@
 # Context Capsule
 
-Task ID: 2026-09-25-tutorial-site-github
+Task ID: 2026-09-25-global-workflow-install
 Generated: 2026-09-25
-Scope: completed tutorial site and GitHub/Pages publication
+Scope: opt-in global OpenCode workflow installation
 
 ## Investigation Question
 
-Is the dependency-free tutorial site implemented, verified, and published from `main:/docs`, with the corrected Sol model routes and no generated artifacts in Git?
+Why does the workflow disappear in other folders, and how is the same workflow deployed machine-wide without changing unrelated projects?
 
 ## Relevant Evidence
 
-- `docs/` contains hand-authored `index.html`, `styles.css`, `app.js`, and `.nojekyll`. Core navigation and all five role panels work without JavaScript; enhancements cover themes, mobile navigation, role tabs, checklist state, command copying, scroll progress, and reveal effects.
-- `scripts/validate-site.mjs` uses Node built-ins only; `--self-test` proves recursive discovery and rejection of a nested credential probe, and it also validates selector-level contrast, IDs, fragments, local assets, relative URLs, progressive baseline, and the four-file publication allowlist.
-- Verification passed: static validator self-test, JS syntax, local HTTP assets, Playwright role/theme/checklist/copy/mobile-focus/no-JS/320-390px reflow smoke, desktop/mobile screenshots, and OpenCode config/agent/plugin smoke checks.
-- Root cause of the earlier child-agent failures: `opencode/gpt-5.6-sol` does not exist; the active model is `openai/gpt-5.6-sol` with variant `max`. Architect, Planner, and Reviewer definitions and documentation were corrected, and delegation smoke tests passed after restart.
-- Initial commit `c41b071` on `main` contains exactly 22 authored files; generated `.opencode` dependencies, manifests, lock files, and the generated `.opencode/.gitignore` remain ignored, and the staged credential-pattern scan is clean.
-- `origin` is `git@github.com:texfu1112-cloud/agent_flow.git`; the repository is public with default branch `main`.
-- GitHub Pages uses branch source `main:/docs` (no workflow). Latest build status is `built`, and the live HTML, `styles.css`, and `app.js` were fetched with expected current content.
+- OpenCode configuration is project-scoped: it loads `opencode.json` and `.opencode/` from the opened folder up to the git worktree root, so agents, commands, and plugins defined only in `agent_flow` are unavailable elsewhere.
+- Global deployment now lives in `~/.config/opencode/`: `agents/` (five roles), `commands/` (three commands), `plugins/stateful-compaction.js`, and `opencode.jsonc`.
+- Global `opencode.jsonc` declares the plugin with a `file:///` URL and adopts the project compaction/tool-output/internal-agent policy, but deliberately omits `default_agent`, `model`, and `small_model`.
+- Neutral-folder verification with OpenCode 1.18.18 resolved all five roles, all three commands, and the global plugin; `default_agent` remained unset there.
+- A project directory loads both the global and project plugin instances. `stateful-compaction.js` now detects an existing `## Durable task checkpoint` entry and skips, preventing duplicate injection; it also returns safely when `output.context` is missing or `TASK.md` does not exist.
+- All global copies are byte-identical to the repository sources (`cmp` for agents/commands, SHA-256 for the plugin).
+- The repository remains the single source of truth; global installation is documented in `README.md` under "全局安装（可选）" and recorded as ADR-002.
 
 ## Current Flow
 
-- Public entry points: repository `https://github.com/texfu1112-cloud/agent_flow` and site `https://texfu1112-cloud.github.io/agent_flow/`. Local maintenance uses `node scripts/validate-site.mjs` plus the OpenCode debug commands.
+- Any folder: `/work <request>` or `@builder` activates the workflow. The plugin reads that project's `TASK.md`; without the file it no-ops. In `agent_flow`, project config still makes Builder the default agent and both plugin instances coexist safely.
 
 ## Constraints And Conventions
 
-- OpenCode loads project config only at startup; restart the client after config-time changes.
-- Site assets must stay document-relative and inside `docs/`; core content must not depend on JavaScript.
-- Never commit generated dependencies, credentials, or raw runtime output.
-- Shell validation requires `/Users/xiafu/.local/node/bin` on `PATH` for Node/npm tooling.
+- Global config must keep `default_agent` and model defaults unchanged.
+- Updating workflow definitions means re-copying to `~/.config/opencode/` and restarting OpenCode; config-time files are not hot-reloaded.
+- Do not install a global `AGENTS.md`; the state protocol ships inside the agent and command definitions to avoid imposing it on every project.
 
 ## Likely Change Surface
 
-- Future site changes: `docs/` plus `scripts/validate-site.mjs`, then Pages re-verification.
-- Future orchestration changes: `opencode.json`, `.opencode/`, durable state files, and the OpenCode smoke checks.
+- Workflow definition changes: update the repository files first, then re-copy to the global directories.
+- Site changes remain `docs/` plus `scripts/validate-site.mjs`.
 
 ## Verification Commands
 
-- `node scripts/validate-site.mjs --self-test`
-- `node --check docs/app.js`
-- `opencode debug config`, `opencode agent list`, `opencode debug agent <name>`
-- `node --check .opencode/plugins/stateful-compaction.js`
-- `git status --short --branch`, `gh api repos/texfu1112-cloud/agent_flow/pages`
+- Plugin behavior: direct `node --input-type=module` invocation from the repository
+- Global config: `opencode debug config`, `opencode agent list`, `opencode debug agent architect` from a non-project directory
+- Project regression: `node scripts/validate-site.mjs --self-test`, `node --check docs/app.js`, project `debug config`
 
 ## Unknowns
 
-- The initial commit author identity resolved from local Git auto-configuration (`夏甫 <xiafu@xiafudeMacBook-Pro.local>`), so GitHub may not link that commit to the account. No functional impact; the user can set an explicit identity for future commits.
+- The OpenCode client must be restarted for the running session to see the new global agents and plugin; that restart is the user's action.
 
 ## Capsule Rule
 

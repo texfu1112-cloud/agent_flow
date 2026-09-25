@@ -15,6 +15,13 @@ Consequences: Important benefits, costs, migration, or rollback implications.
 
 ## Accepted Decisions
 
+## ADR-002: Offer an explicit-opt-in global installation of the workflow
+Date: 2026-09-25
+Status: accepted
+Context: Agent, command, and plugin definitions are project-scoped, so the workflow disappears when OpenCode starts in another folder. The user wants one machine-wide installation without changing unrelated projects' default behavior.
+Decision: Deploy the same location-independent definitions to `~/.config/opencode/` and declare the plugin in the global config. Global configuration must not set `default_agent` or model defaults; the repository stays the single source of truth; the compaction plugin must stay idempotent because global and project scopes can load it at the same time.
+Consequences: `/work`, `@builder`, and the other roles become available in every folder after a client restart. The global config also adopts the project's compaction, tool-output, and internal-agent model policy, which applies to all projects unless a project overrides it. Refreshing the workflow means re-copying definitions and restarting OpenCode.
+
 ## ADR-001: Publish the tutorial from `main/docs`
 Date: 2026-09-25
 Status: accepted

@@ -85,6 +85,37 @@ TASK.md checkpoint + concise result
 
 `/continue-task` 特意没有命名为 `/resume`，因为 `/resume` 是 OpenCode 原生的会话列表命令。
 
+## 全局安装（可选）
+
+默认情况下这是项目级配置：只有在 `/Users/xiafu/source/agent_flow`（或自带同一套文件的目录）里启动 OpenCode 才会生效。如果希望**任意文件夹**都能使用这套工作流，可以把同一份定义部署到全局配置：
+
+```text
+mkdir -p ~/.config/opencode/agents ~/.config/opencode/commands ~/.config/opencode/plugins
+cp .opencode/agents/*.md ~/.config/opencode/agents/
+cp .opencode/commands/*.md ~/.config/opencode/commands/
+cp .opencode/plugins/stateful-compaction.js ~/.config/opencode/plugins/
+```
+
+然后在 `~/.config/opencode/opencode.jsonc` 中声明插件（保留文件里已有的其他字段）：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "file:///Users/<你的用户名>/.config/opencode/plugins/stateful-compaction.js"
+  ]
+}
+```
+
+重启 OpenCode 后，任意目录都可以用 `/work <需求>` 或 `@builder` 进入流程。
+
+全局安装的约定：
+
+- 全局配置**不设置** `default_agent`，避免改变其他项目的默认 Agent；只有你主动运行 `/work` 或 `@builder` 才进入这套工作流。
+- 插件读取的是当前项目的 `TASK.md`；项目里没有该文件时自动跳过。
+- 压缩插件是幂等的，因此全局与项目同时加载时不会重复注入检查点。
+- 本仓库仍是唯一事实来源；修改 Agent、命令或插件后需要重新复制到全局并重启客户端。
+
 ## 工程维护
 
 该目录应作为独立 Git 工程维护。Agent、命令、插件、状态协议和文档都纳入版本控制；OpenCode 自动生成的 `.opencode/node_modules`、包清单与锁文件由根级 `.gitignore` 排除。
