@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/deepseek-v4.1-flash",
+  "small_model": "opencode/deepseek-v4.1-flash",
+  "default_agent": "builder",
+  "subagent_depth": 1,
+  "tool_output": {
+    "max_lines": 200,
+    "max_bytes": 16000
+  },
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "tail_turns": 6,
+    "preserve_recent_tokens": 12000,
+    "reserved": 30000
+  },
+  "agent": {
+    "compaction": {
+      "model": "opencode/deepseek-v4.1-flash",
+      "variant": "max"
+    },
+    "summary": {
+      "model": "opencode/deepseek-v4.1-flash",
+      "variant": "max"
+    },
+    "title": {
+      "model": "opencode/deepseek-v4.1-flash",
+      "variant": "low"
+    }
+  }
+}

@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#0b1117">
+    <meta
+      name="description"
+      content="用一套可恢复、可审查、低上下文成本的 OpenCode 多 Agent 工作流，把复杂任务稳定地交给 Builder、Explore、Architect、Planner 与 Reviewer。"
+    >
+    <meta property="og:title" content="Agent Flow · OpenCode 多 Agent 实战指南">
+    <meta
+      property="og:description"
+      content="从 5 分钟上手到跨会话恢复，完整理解这套状态化 OpenCode 多 Agent 编排工程。"
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://texfu1112-cloud.github.io/agent_flow/">
+    <title>Agent Flow · OpenCode 多 Agent 实战指南</title>
+    <link rel="canonical" href="https://texfu1112-cloud.github.io/agent_flow/">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+
+  <body id="top">
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="scroll-progress" aria-hidden="true"><span></span></div>
+
+    <header class="site-header" data-header>
+      <nav class="nav-shell" aria-label="主要导航">
+        <a class="brand" href="#top" aria-label="Agent Flow 首页">
+          <span class="brand-mark" aria-hidden="true">AF</span>
+          <span class="brand-copy">
+            <strong>Agent Flow</strong>
+            <small>OpenCode field guide</small>
+          </span>
+        </a>
+
+        <div class="nav-links" id="site-nav" data-nav-menu>
+          <a href="#start">开始</a>
+          <a href="#roles">角色</a>
+          <a href="#workflow">工作流</a>
+          <a href="#commands">命令</a>
+          <a href="#state">状态</a>
+          <a href="#recipes">场景</a>
+          <a href="#maintain">维护</a>
+          <a
+            class="nav-github"
+            href="https://github.com/texfu1112-cloud/agent_flow"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <div class="nav-actions">
+          <button class="icon-button" type="button" data-theme-toggle aria-label="切换为深色主题">
+            <span data-theme-icon aria-hidden="true">◐</span>
+          </button>
+          <button
+            class="nav-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="site-nav"
+            aria-label="打开导航菜单"
+            data-nav-toggle
+          >
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+
+        <div class="shell hero-layout">
+          <div class="hero-copy" data-reveal>
+            <p class="eyebrow"><span></span> Stateful multi-agent workflow</p>
+            <h1 id="hero-title">
+              <span class="hero-line">让 Agent 接力，</span><br>
+              <em>不要让上下文失忆。</em>
+            </h1>
+            <p class="hero-lead">
+              一套项目级 OpenCode 编排工程：Flash 负责搜索与执行，Sol 只处理高价值判断，
+              <code>TASK.md</code> 让任务跨压缩、跨会话继续前进。
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#start">
+                5 分钟上手 <span aria-hidden="true">↓</span>
+              </a>
+              <a class="button button-ghost" href="#workflow">先看工作流</a>
+            </div>
+            <dl class="hero-stats" aria-label="项目概览">
+              <div><dt>5</dt><dd>个专职角色</dd></div>
+              <div><dt>3</dt><dd>条自定义命令</dd></div>
+              <div><dt>1</dt><dd>份任务真相</dd></div>
+            </dl>
+          </div>
+
+          <div class="hero-visual" data-reveal data-reveal-delay="1">
+            <div class="control-card">
+              <div class="control-topline">
+                <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+                <span>LIVE · TASK ROUTER</span>
+                <span class="signal"><i></i> ready</span>
+              </div>
+
+              <div class="prompt-block">
+                <span class="prompt-label">YOU</span>
+                <p>/work 为结账流程增加优惠码，并运行相关测试</p>
+              </div>
+
+              <div class="route-map" aria-label="任务从 Builder 路由到各专职 Agent，再回到持久化状态">
+                <div class="route-node route-builder">
+                  <span class="node-index">01</span>
+                  <div><strong>Builder</strong><small>control plane</small></div>
+                  <b>PRIMARY</b>
+                </div>
+                <div class="route-branch" aria-hidden="true"><span></span></div>
+                <div class="route-agents">
+                  <span>Explore</span><span>Architect</span><span>Planner</span><span>Reviewer</span>
+                </div>
+                <div class="route-branch route-return" aria-hidden="true"><span></span></div>
+                <div class="route-node route-state">
+                  <span class="node-index">02</span>
+                  <div><strong>TASK.md</strong><small>durable checkpoint</small></div>
+                  <b>SAVED</b>
+                </div>
+              </div>
+
+              <div class="control-footer">
+                <span><i class="legend-flash"></i> Flash · 执行</span>
+                <span><i class="legend-sol"></i> Sol · 判断</span>
+                <span><i class="legend-state"></i> Disk · 记忆</span>
+              </div>
+            </div>
+            <p class="visual-caption">昂贵模型只看到做判断所需的最小上下文。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="principle-strip" aria-label="核心原则">
+        <div class="shell principle-row">
+          <p><span>01</span> 搜索过程不污染主上下文</p>
+          <p><span>02</span> 长期事实写入磁盘</p>
+          <p><span>03</span> 每个高风险改动都经过 Review</p>
+        </div>
+      </section>
+
+      <section class="section section-start" id="start" aria-labelledby="start-title">
+        <div class="shell">
+          <div class="section-heading" data-reveal>
+            <div>
+              <p class="section-kicker">01 · QUICK START</p>
+              <h2 id="start-title">从克隆到第一条任务</h2>
+            </div>
+            <p>不需要构建网站，也不需要安装项目依赖。准备好 OpenCode 和可用模型后，按顺序完成四步。</p>
+          </div>
+
+          <div class="starter-board" data-checklist data-reveal>
+            <div class="starter-progress">
+              <div>
+                <span class="status-dot" aria-hidden="true"></span>
+                <strong>启动清单</strong>
+                <span data-checklist-count>0 / 4</span>
+              </div>
+              <div class="progress-track" aria-hidden="true"><span data-checklist-bar></span></div>
+              <button type="button" class="text-button" data-checklist-reset>重置</button>
+            </div>
+
+            <ol class="start-steps">
+              <li>
+                <label class="step-check">
+                  <input type="checkbox" data-step-check>
+                  <span class="check-box" aria-hidden="true">1</span>
+                  <span class="sr-only">标记“克隆工程”为完成</span>
+                </label>
+                <div class="step-content">
+                  <div class="step-title"><span>STEP 01</span><h3>克隆工程</h3></div>
+                  <p>把编排配置、状态协议和教学网站一起拉到本地。</p>
+                  <div class="code-block">
+                    <code>git clone git@github.com:texfu1112-cloud/agent_flow.git<br>cd agent_flow</code>
+                    <button
+                      type="button"
+                      class="copy-button"
+                      data-copy="git clone git@github.com:texfu1112-cloud/agent_flow.git&#10;cd agent_flow"
+                    >复制</button>
+                  </div>
+                </div>
+              </li>
+
+              <li>
+                <label class="step-check">
+                  <input type="checkbox" data-step-check>
+                  <span class="check-box" aria-hidden="true">2</span>
+                  <span class="sr-only">标记“启动 OpenCode”为完成</span>
+                </label>
+                <div class="step-content">
+                  <div class="step-title"><span>STEP 02</span><h3>在项目根目录启动 OpenCode</h3></div>
+                  <p>
+                    先按
+                    <a href="https://opencode.ai/docs/" target="_blank" rel="noopener noreferrer">OpenCode 官方文档</a>
+                    完成安装。本工程最近使用 <code>opencode-ai@1.18.18</code> 验证。
+                  </p>
+                  <div class="code-block"><code>opencode</code><button type="button" class="copy-button" data-copy="opencode">复制</button></div>
+                  <p class="step-note">配置、Agent、命令和插件不会热更新；修改后请退出并重启客户端。</p>
+                </div>
+              </li>
+
+              <li>
+                <label class="step-check">
+                  <input type="checkbox" data-step-check>
+                  <span class="check-box" aria-hidden="true">3</span>
+                  <span class="sr-only">标记“连接模型”为完成</span>
+                </label>
+                <div class="step-content">
+                  <div class="step-title"><span>STEP 03</span><h3>连接模型 Provider</h3></div>
+                  <p>
+                    在 OpenCode 中运行 <code>/connect</code>，确保账号能访问 Flash 与 Sol 两条模型路由。
+                  </p>
+                  <div class="model-pills">
+                    <span>opencode/deepseek-v4.1-flash</span>
+                    <span>openai/gpt-5.6-sol</span>
+                  </div>
+                  <p class="step-note">如果你的 Provider 不同，只替换模型 ID；角色协议与状态格式无需改变。</p>
+                </div>
+              </li>
+
+              <li>
+                <label class="step-check">
+                  <input type="checkbox" data-step-check>
+                  <span class="check-box" aria-hidden="true">4</span>
+                  <span class="sr-only">标记“发起任务”为完成</span>
+                </label>
+                <div class="step-content">
+                  <div class="step-title"><span>STEP 04</span><h3>把完整目标交给 Builder</h3></div>
+                  <p>描述结果、约束和验收方式。Builder 会自己判断是否需要搜索、架构、计划与审查。</p>
+                  <div class="code-block code-accent">
+                    <code>/work 做一个响应式登录页，沿用现有视觉风格，并运行相关检查</code>
+                    <button
+                      type="button"
+                      class="copy-button"
+                      data-copy="/work 做一个响应式登录页，沿用现有视觉风格，并运行相关检查"
+                    >复制</button>
+                  </div>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-roles" id="roles" aria-labelledby="roles-title">
+        <div class="shell">
+          <div class="section-heading section-heading-light" data-reveal>
+            <div>
+              <p class="section-kicker">02 · THE CREW</p>
+              <h2 id="roles-title">五个角色，只做自己擅长的事</h2>
+            </div>
+            <p>Builder 是唯一写入者。其他角色在独立 child session 中返回小而明确的结果，不把搜索轨迹塞回主会话。</p>
+          </div>
+
+          <div class="role-tabs" data-role-tabs data-reveal>
+            <a
+              class="role-tab is-active"
+              href="#role-panel-builder"
+              id="role-tab-builder"
+              data-role-tab="builder"
+            >
+              <span class="role-number">01</span>
+              <strong>Builder</strong>
+              <small>控制 · 实现 · 验证</small>
+              <i>PRIMARY</i>
+            </a>
+            <a
+              class="role-tab"
+              href="#role-panel-explore"
+              id="role-tab-explore"
+              data-role-tab="explore"
+            >
+              <span class="role-number">02</span>
+              <strong>Explore</strong>
+              <small>只读搜索 · 证据压缩</small>
+              <i>FLASH</i>
+            </a>
+            <a
+              class="role-tab"
+              href="#role-panel-architect"
+              id="role-tab-architect"
+              data-role-tab="architect"
+            >
+              <span class="role-number">03</span>
+              <strong>Architect</strong>
+              <small>长期决策 · 约束</small>
+              <i>SOL</i>
+            </a>
+            <a
+              class="role-tab"
+              href="#role-panel-planner"
+              id="role-tab-planner"
+              data-role-tab="planner"
+            >
+              <span class="role-number">04</span>
+              <strong>Planner</strong>
+              <small>拆解 · 风险 · 验证</small>
+              <i>SOL</i>
+            </a>
+            <a
+              class="role-tab"
+              href="#role-panel-reviewer"
+              id="role-tab-reviewer"
+              data-role-tab="reviewer"
+            >
+              <span class="role-number">05</span>
+              <strong>Reviewer</strong>
+              <small>审 Diff · 找缺口</small>
+              <i>SOL</i>
+            </a>
+          </div>
+
+          <div class="role-panels" data-reveal>
+            <article class="role-panel is-active" id="role-panel-builder" data-role-panel="builder">
+              <div class="role-panel-main">
+                <p class="role-overline">DEFAULT AGENT · FLASH / MAX</p>
+                <h3>Builder 是控制面，也是唯一的施工方。</h3>
+                <p>它读取任务状态、决定要不要委派、修改代码、运行验证、处理 Review 反馈，最后把可恢复的检查点写回磁盘。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>每一个用户请求</dd></div>
+                <div><dt>可以写入</dt><dd>实现文件与状态文件</dd></div>
+                <div><dt>核心产物</dt><dd>可验证改动 + TASK.md</dd></div>
+              </dl>
+            </article>
+
+            <article class="role-panel" id="role-panel-explore" data-role-panel="explore">
+              <div class="role-panel-main">
+                <p class="role-overline">READ ONLY · FLASH / MAX</p>
+                <h3>Explore 先找证据，再交一份压缩地图。</h3>
+                <p>当实现位置未知时，它可以广搜仓库，但只返回路径、符号、事实和未知项。原始搜索日志不会占据昂贵模型的上下文。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>实现位置或调用链未知</dd></div>
+                <div><dt>不可以做</dt><dd>编辑、实现、继续委派</dd></div>
+                <div><dt>核心产物</dt><dd>CONTEXT.md 证据胶囊</dd></div>
+              </dl>
+            </article>
+
+            <article class="role-panel" id="role-panel-architect" data-role-panel="architect">
+              <div class="role-panel-main">
+                <p class="role-overline">DECISION GATE · SOL / MAX</p>
+                <h3>Architect 只处理难以回头的选择。</h3>
+                <p>新子系统、公共契约、持久化 Schema、安全边界、基础设施或跨模块重构才会触发。它读取精选上下文，不扫描整个仓库。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>高影响、长期、难逆决策</dd></div>
+                <div><dt>不可以做</dt><dd>编辑、构建、广泛搜索</dd></div>
+                <div><dt>核心产物</dt><dd>决定、约束与备选取舍</dd></div>
+              </dl>
+            </article>
+
+            <article class="role-panel" id="role-panel-planner" data-role-panel="planner">
+              <div class="role-panel-main">
+                <p class="role-overline">PLANNING GATE · SOL / MAX</p>
+                <h3>Planner 把已知事实变成可执行顺序。</h3>
+                <p>跨组件、迁移、风险修复、验收模糊或测试策略复杂时才调用。小而明确的本地改动由 Builder 直接写短计划。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>非平凡或高风险工作</dd></div>
+                <div><dt>关注内容</dt><dd>顺序、边界、回滚、验证</dd></div>
+                <div><dt>核心产物</dt><dd>实现级步骤与测试映射</dd></div>
+              </dl>
+            </article>
+
+            <article class="role-panel" id="role-panel-reviewer" data-role-panel="reviewer">
+              <div class="role-panel-main">
+                <p class="role-overline">REVIEW GATE · SOL / MAX</p>
+                <h3>Reviewer 只审这次改动，不重读整个世界。</h3>
+                <p>它从验收条件、Diff 和测试证据出发，优先发现正确性、安全、数据、并发和架构漂移问题；反馈由 Builder 修复。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>有意义的运行时或基础设施改动</dd></div>
+                <div><dt>可跳过</dt><dd>纯文案、格式或生成物</dd></div>
+                <div><dt>核心产物</dt><dd>按严重度排序的 Findings</dd></div>
+              </dl>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-workflow" id="workflow" aria-labelledby="workflow-title">
+        <div class="shell">
+          <div class="section-heading" data-reveal>
+            <div>
+              <p class="section-kicker">03 · THE ROUTE</p>
+              <h2 id="workflow-title">一条任务，六个可控阶段</h2>
+            </div>
+            <p>不是每次都调用所有 Agent。门控让简单任务保持轻量，让高风险任务得到足够推理。</p>
+          </div>
+
+          <ol class="workflow-list" data-reveal>
+            <li>
+              <span class="workflow-index">01</span>
+              <div><p class="workflow-label">FRAME</p><h3>把目标写成检查点</h3><p>Builder 把目标、验收条件、限制和当前阶段写入 <code>TASK.md</code>。</p></div>
+              <span class="workflow-owner">Builder</span>
+            </li>
+            <li>
+              <span class="workflow-index">02</span>
+              <div><p class="workflow-label">EXPLORE</p><h3>只在未知处搜索</h3><p>实现位置不清楚时，Explore 返回带路径证据的胶囊；已知位置则直接继续。</p></div>
+              <span class="workflow-owner">Conditional</span>
+            </li>
+            <li>
+              <span class="workflow-index">03</span>
+              <div><p class="workflow-label">GATE</p><h3>决定是否需要深度判断</h3><p>长期技术选择交给 Architect；非平凡执行顺序交给 Planner。</p></div>
+              <span class="workflow-owner">Sol gate</span>
+            </li>
+            <li>
+              <span class="workflow-index">04</span>
+              <div><p class="workflow-label">BUILD</p><h3>做最小且正确的改动</h3><p>Builder 遵循现有约定，保护无关工作，并实时更新任务清单。</p></div>
+              <span class="workflow-owner">Builder</span>
+            </li>
+            <li>
+              <span class="workflow-index">05</span>
+              <div><p class="workflow-label">VERIFY + REVIEW</p><h3>先窄测，再审关键风险</h3><p>从最相关检查开始；有意义的代码或基础设施改动进入 Reviewer 修复循环。</p></div>
+              <span class="workflow-owner">Evidence</span>
+            </li>
+            <li>
+              <span class="workflow-index">06</span>
+              <div><p class="workflow-label">CLOSE</p><h3>让下一次打开就能继续</h3><p>记录状态、变更、验证、阻塞和唯一下一步，再给用户简洁结果。</p></div>
+              <span class="workflow-owner">TASK.md</span>
+            </li>
+          </ol>
+
+          <div class="gate-grid" data-reveal>
+            <article>
+              <span class="gate-icon">A</span>
+              <p class="gate-type">ARCHITECTURE GATE</p>
+              <h3>什么时候要 Architect？</h3>
+              <p>公共接口、持久化数据、安全边界、依赖或基础设施、跨模块重构，以及任何难以回滚的决定。</p>
+              <strong>否则：Builder 自己决策</strong>
+            </article>
+            <article>
+              <span class="gate-icon">P</span>
+              <p class="gate-type">PLANNING GATE</p>
+              <h3>什么时候要 Planner？</h3>
+              <p>跨组件行为、迁移、风险修复、验收不清或需要认真设计测试策略的任务。</p>
+              <strong>否则：TASK.md 中写短计划</strong>
+            </article>
+            <article>
+              <span class="gate-icon">R</span>
+              <p class="gate-type">REVIEW GATE</p>
+              <h3>什么时候要 Reviewer？</h3>
+              <p>运行时行为、API、数据、安全、并发、基础设施或其他有实际风险的改动。</p>
+              <strong>仅纯文案 / 格式可跳过</strong>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-commands" id="commands" aria-labelledby="commands-title">
+        <div class="shell">
+          <div class="section-heading section-heading-light" data-reveal>
+            <div>
+              <p class="section-kicker">04 · COMMAND DECK</p>
+              <h2 id="commands-title">记住三条命令就够了</h2>
+            </div>
+            <p>命令不是三个独立机器人，而是三个进入 Builder 工作流的清晰入口。</p>
+          </div>
+
+          <div class="command-grid" data-reveal>
+            <article class="command-card command-card-featured">
+              <div class="command-head"><span>01</span><b>START</b></div>
+              <h3><code>/work</code></h3>
+              <p>开始一项完整工作。你的描述会成为权威需求，Builder 从 Frame 一直负责到 Close。</p>
+              <div class="command-example">
+                <code>/work 给设置页增加主题切换，保留现有偏好，并补相关测试</code>
+                <button
+                  type="button"
+                  class="copy-button"
+                  data-copy="/work 给设置页增加主题切换，保留现有偏好，并补相关测试"
+                >复制</button>
+              </div>
+              <p class="command-tip">最好同时说清楚：结果、不能破坏什么、怎样算完成。</p>
+            </article>
+
+            <article class="command-card">
+              <div class="command-head"><span>02</span><b>SAVE</b></div>
+              <h3><code>/checkpoint</code></h3>
+              <p>准备结束或切换会话时，要求 Builder 清理并持久化可恢复的任务状态，不开始新工作。</p>
+              <div class="command-example">
+                <code>/checkpoint 准备切换会话</code>
+                <button type="button" class="copy-button" data-copy="/checkpoint 准备切换会话">复制</button>
+              </div>
+              <p class="command-tip">它会留下状态、已完成项、验证、阻塞和一个准确的下一步。</p>
+            </article>
+
+            <article class="command-card">
+              <div class="command-head"><span>03</span><b>RESUME</b></div>
+              <h3><code>/continue-task</code></h3>
+              <p>在全新会话中只依赖磁盘状态恢复，先验证记录是否仍与工作树一致，再从 Next Action 继续。</p>
+              <div class="command-example">
+                <code>/continue-task</code>
+                <button type="button" class="copy-button" data-copy="/continue-task">复制</button>
+              </div>
+              <p class="command-tip"><code>/resume</code> 是 OpenCode 原生会话列表，因此这里刻意使用不同名字。</p>
+            </article>
+          </div>
+
+          <div class="session-lane" data-reveal>
+            <div><span>当前会话</span><code>/checkpoint</code></div>
+            <i aria-hidden="true">→</i>
+            <div><span>OpenCode 原生命令</span><code>/new</code></div>
+            <i aria-hidden="true">→</i>
+            <div><span>新会话</span><code>/continue-task</code></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-state" id="state" aria-labelledby="state-title">
+        <div class="shell">
+          <div class="section-heading" data-reveal>
+            <div>
+              <p class="section-kicker">05 · DURABLE MEMORY</p>
+              <h2 id="state-title">磁盘状态，比聊天记录更可信</h2>
+            </div>
+            <p>聊天会被压缩、会过期。这个工程把真正需要跨会话保留的信息分层写入版本化文件。</p>
+          </div>
+
+          <div class="state-layout">
+            <div class="truth-stack" data-reveal>
+              <div class="truth-heading"><span>SOURCE OF TRUTH</span><small>从高到低</small></div>
+              <ol>
+                <li><span>01</span><div><strong>当前源码 + 验证结果</strong><small>真实行为永远第一</small></div></li>
+                <li><span>02</span><div><strong>ARCHITECTURE + DECISIONS</strong><small>已接受的长期边界</small></div></li>
+                <li><span>03</span><div><strong>TASK.md</strong><small>当前任务检查点</small></div></li>
+                <li><span>04</span><div><strong>CONTEXT.md</strong><small>可替换的证据胶囊</small></div></li>
+                <li><span>05</span><div><strong>聊天历史</strong><small>最低优先级</small></div></li>
+              </ol>
+              <p>发现冲突？报告并修正旧状态，而不是盲从旧摘要。</p>
+            </div>
+
+            <div class="state-cards" data-reveal data-reveal-delay="1">
+              <article>
+                <span class="file-badge file-task">TASK</span>
+                <h3>TASK.md</h3>
+                <p>一项任务一份可恢复检查点。目标、验收、阶段、进度、验证、阻塞和唯一下一步都在这里。</p>
+                <small>生命周期 · 单任务，可替换</small>
+              </article>
+              <article>
+                <span class="file-badge file-context">EVIDENCE</span>
+                <h3>CONTEXT.md</h3>
+                <p>Explore 的高信号调查结果，只留路径、事实、流程和未知项，不保存搜索日志。</p>
+                <small>预算 · 低于 2,500 tokens</small>
+              </article>
+              <article>
+                <span class="file-badge file-architecture">BOUNDARY</span>
+                <h3>ARCHITECTURE.md</h3>
+                <p>跨任务仍然有效的组件边界、数据流和不变量，不记录任务进度。</p>
+                <small>预算 · 约 4,000 tokens</small>
+              </article>
+              <article>
+                <span class="file-badge file-decisions">DECISION</span>
+                <h3>DECISIONS.md</h3>
+                <p>只保存已经接受、会约束未来工作的技术决定；任务内小选择留在 TASK。</p>
+                <small>格式 · 简洁 ADR，最新优先</small>
+              </article>
+            </div>
+          </div>
+
+          <div class="compaction-card" data-reveal>
+            <div class="compaction-visual" aria-hidden="true">
+              <span>CONTEXT WINDOW</span>
+              <div class="memory-bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <strong>COMPACT</strong>
+              <div class="checkpoint-chip">+ TASK.md</div>
+            </div>
+            <div>
+              <p class="section-kicker">STATEFUL COMPACTION</p>
+              <h3>压缩发生时，最新任务检查点会被重新注入。</h3>
+              <p>
+                插件在 <code>experimental.session.compacting</code> 钩子中读取 <code>TASK.md</code>，
+                把目标、进度、验证和下一步带进压缩后的上下文。超过 12,000 字符时会截断并要求重新读取文件。
+              </p>
+              <p class="inline-note">TASK.md 缺失时插件静默跳过，不会让压缩流程失败。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-recipes" id="recipes" aria-labelledby="recipes-title">
+        <div class="shell">
+          <div class="section-heading" data-reveal>
+            <div>
+              <p class="section-kicker">06 · PLAYBOOKS</p>
+              <h2 id="recipes-title">照着这四种场景开始</h2>
+            </div>
+            <p>好的请求描述结果和边界，而不是替 Builder 预先决定每一步。</p>
+          </div>
+
+          <div class="recipe-list" data-reveal>
+            <details open>
+              <summary><span>01</span><div><strong>开发一个完整功能</strong><small>会经过 Explore / Plan / Review 的典型任务</small></div><i aria-hidden="true">+</i></summary>
+              <div class="recipe-body">
+                <p>告诉 Builder 用户价值、关键约束和验收条件。不要一次粘贴整个仓库。</p>
+                <div class="code-block code-accent">
+                  <code>/work 为后台增加审计日志列表。沿用现有权限模型，支持按操作者和日期筛选，补 API 与 UI 测试，不修改日志写入格式。</code>
+                  <button
+                    type="button"
+                    class="copy-button"
+                    data-copy="/work 为后台增加审计日志列表。沿用现有权限模型，支持按操作者和日期筛选，补 API 与 UI 测试，不修改日志写入格式。"
+                  >复制</button>
+                </div>
+              </div>
+            </details>
+
+            <details>
+              <summary><span>02</span><div><strong>完成一个小而明确的修改</strong><small>不必为了流程而强行调用昂贵 Agent</small></div><i aria-hidden="true">+</i></summary>
+              <div class="recipe-body">
+                <p>本地改动很明确时，Builder 会在 TASK 中写短计划后直接实现，仍然会做最相关验证。</p>
+                <div class="code-block">
+                  <code>/work 把 README 中的旧命令名称改为 /continue-task，只改文档并检查所有引用</code>
+                  <button
+                    type="button"
+                    class="copy-button"
+                    data-copy="/work 把 README 中的旧命令名称改为 /continue-task，只改文档并检查所有引用"
+                  >复制</button>
+                </div>
+              </div>
+            </details>
+
+            <details>
+              <summary><span>03</span><div><strong>跨会话继续复杂任务</strong><small>不依赖上一段聊天历史</small></div><i aria-hidden="true">+</i></summary>
+              <div class="recipe-body">
+                <p>先让当前会话落盘，再开干净会话。新 Builder 会校验工作树，然后从唯一 Next Action 继续。</p>
+                <div class="mini-sequence"><code>/checkpoint</code><span>→</span><code>/new</code><span>→</span><code>/continue-task</code></div>
+              </div>
+            </details>
+
+            <details>
+              <summary><span>04</span><div><strong>第一次接入真实代码仓库</strong><small>只初始化长期有价值的项目知识</small></div><i aria-hidden="true">+</i></summary>
+              <div class="recipe-body">
+                <p>让 Explore 找到真实命令和稳定边界，但不要把整个仓库摘要塞进架构文件。</p>
+                <div class="code-block">
+                  <code>/work 探索项目并只更新 AGENTS.md 的真实构建命令，以及 ARCHITECTURE.md 的稳定边界和不变量；不要修改业务代码</code>
+                  <button
+                    type="button"
+                    class="copy-button"
+                    data-copy="/work 探索项目并只更新 AGENTS.md 的真实构建命令，以及 ARCHITECTURE.md 的稳定边界和不变量；不要修改业务代码"
+                  >复制</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-maintain" id="maintain" aria-labelledby="maintain-title">
+        <div class="shell">
+          <div class="section-heading section-heading-light" data-reveal>
+            <div>
+              <p class="section-kicker">07 · KEEP IT HEALTHY</p>
+              <h2 id="maintain-title">修改配置后，跑完这组检查</h2>
+            </div>
+            <p>项目目前没有自动化测试套件；OpenCode debug 命令和插件语法检查就是配置层 smoke test。</p>
+          </div>
+
+          <div class="terminal-card" data-reveal>
+            <div class="terminal-bar"><span aria-hidden="true">● ● ●</span><strong>agent_flow / verification</strong><button type="button" class="copy-button copy-all" data-copy="opencode debug config&#10;opencode agent list&#10;opencode debug agent builder&#10;node --check .opencode/plugins/stateful-compaction.js">复制全部</button></div>
+            <div class="terminal-body">
+              <p><span>$</span><code>opencode debug config</code><small>解析配置、命令与插件</small></p>
+              <p><span>$</span><code>opencode agent list</code><small>确认 Agent 与权限</small></p>
+              <p><span>$</span><code>opencode debug agent &lt;name&gt;</code><small>检查单个角色路由</small></p>
+              <p><span>$</span><code>node --check .opencode/plugins/stateful-compaction.js</code><small>验证插件语法</small></p>
+            </div>
+          </div>
+
+          <div class="maintenance-grid" data-reveal>
+            <article class="do-card">
+              <p class="maintenance-label">COMMIT</p>
+              <h3>应该进入版本控制</h3>
+              <ul>
+                <li>Agent 与命令定义</li>
+                <li>插件、状态协议与架构决策</li>
+                <li>README 和教学网站</li>
+                <li>可恢复的 TASK / CONTEXT 状态</li>
+              </ul>
+            </article>
+            <article class="dont-card">
+              <p class="maintenance-label">IGNORE</p>
+              <h3>绝不能作为源码提交</h3>
+              <ul>
+                <li><code>.opencode/node_modules</code></li>
+                <li>自动生成的包清单与锁文件</li>
+                <li>API key、Provider 凭据</li>
+                <li>原始会话导出和大段工具日志</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="faq" data-reveal>
+            <h3>常见问题</h3>
+            <details>
+              <summary>我改了 Agent 或命令，为什么 OpenCode 没变化？<i aria-hidden="true">+</i></summary>
+              <p>这些文件只在启动时加载。完全退出 OpenCode，从项目根目录重新启动，再运行 <code>opencode debug config</code>。</p>
+            </details>
+            <details>
+              <summary>账号访问不到配置里的模型怎么办？<i aria-hidden="true">+</i></summary>
+              <p>先用 <code>/connect</code> 配置 Provider；如模型 ID 不同，只修改 <code>opencode.json</code> 与 <code>.opencode/agents/*.md</code> 中的 provider/model ID。</p>
+            </details>
+            <details>
+              <summary>什么时候应该开一个新会话？<i aria-hidden="true">+</i></summary>
+              <p>一个主会话原则上只做一项任务。任务需要换上下文时用 checkpoint 流程；完全无关的新任务，先结束或检查点当前任务，再开新会话。</p>
+            </details>
+            <details>
+              <summary>CONTEXT.md 和源码冲突时相信谁？<i aria-hidden="true">+</i></summary>
+              <p>相信当前源码与验证结果。修正陈旧的胶囊，再继续工作；聊天历史的优先级最低。</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="shell closing-card" data-reveal>
+          <div>
+            <p class="section-kicker">READY TO HAND OFF</p>
+            <h2 id="closing-title">把下一项真实任务交给 Builder。</h2>
+            <p>从一个边界清楚、可以验证的需求开始。剩下的路由、状态和复核，让工作流来处理。</p>
+          </div>
+          <div class="closing-actions">
+            <a class="button button-primary" href="#start">回到上手清单</a>
+            <a
+              class="button button-ghost-light"
+              href="https://github.com/texfu1112-cloud/agent_flow"
+              target="_blank"
+              rel="noopener noreferrer"
+            >查看源码 ↗</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-row">
+        <div class="brand footer-brand">
+          <span class="brand-mark" aria-hidden="true">AF</span>
+          <span class="brand-copy"><strong>Agent Flow</strong><small>State lives on disk.</small></span>
+        </div>
+        <p>Built for focused agents, durable context, and work that survives the session.</p>
+        <div class="footer-links">
+          <a href="#top">回到顶部 ↑</a>
+          <a href="https://github.com/texfu1112-cloud/agent_flow" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <span>© <span data-year>2026</span></span>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-toast" role="status" aria-live="polite" aria-atomic="true" data-toast></div>
+  </body>
+</html>

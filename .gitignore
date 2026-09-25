@@ -1,0 +1,8 @@
+.DS_Store
+*.log
+node_modules/
+.opencode/.gitignore
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
