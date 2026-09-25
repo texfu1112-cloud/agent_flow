@@ -1,9 +1,9 @@
 # Active Task
 
-Status: in_progress
+Status: completed
 Task ID: 2026-09-25-tutorial-site-github
 Updated: 2026-09-25
-Phase: publish
+Phase: close
 
 ## Objective
 
@@ -38,7 +38,7 @@ Decision: ADR-001 — keep a dependency-free, progressively enhanced site in `do
 
 ## Implementation Plan
 
-- [x] Inspect the current Git worktree, remotes, and GitHub authentication.
+- [x] Inspect the Git worktree, remotes, and GitHub authentication.
 - [x] Confirm the GitHub destination, visibility, and whether to publish with GitHub Pages.
 - [x] Map authoritative tutorial content and accept ADR-001 for `main:/docs` branch-source deployment.
 - [x] Diagnose and repair the disabled Sol child-agent route; verify Architect, Planner, and Reviewer in fresh CLI processes.
@@ -46,52 +46,43 @@ Decision: ADR-001 — keep a dependency-free, progressively enhanced site in `do
 - [x] Add a dependency-free static-site validation script and update `README.md` plus stable architecture boundaries.
 - [x] Verify HTML structure, anchors/assets, JavaScript, responsive/accessibility hooks, local HTTP serving, and existing OpenCode configuration/plugin checks.
 - [x] Review the bounded changes and resolve findings.
-- [ ] Inspect/stage only intended files, create the initial commit, create/push public `texfu1112-cloud/agent_flow`, configure `main:/docs`, and verify Pages.
+- [x] Inspect/stage only intended files, create the initial commit, create/push public `texfu1112-cloud/agent_flow`, configure `main:/docs`, and verify Pages.
 
 ## Progress
 
-- Completed: preflight, design, implementation, documentation, verification, two Reviewer fix cycles, and final PASS
-- In progress: explicit staging and initial Git/GitHub publication
-- Pending: Pages activation/live verification and final state push
+- Completed: preflight, architecture/plan, Sol routing repair, implementation, documentation, verification, two Reviewer fix cycles with final PASS, initial commit, repository creation, push, and Pages activation/live verification
+- In progress: none
+- Pending: none
 
 ## Changed Paths
 
-- `TASK.md`
-- `.opencode/state/CONTEXT.md`
-- `DECISIONS.md`
-- `ARCHITECTURE.md`
-- `docs/index.html`
-- `docs/styles.css`
-- `docs/app.js`
-- `docs/.nojekyll`
+- `TASK.md`, `.opencode/state/CONTEXT.md`, `DECISIONS.md`, `ARCHITECTURE.md`, `README.md`
+- `docs/index.html`, `docs/styles.css`, `docs/app.js`, `docs/.nojekyll`
 - `scripts/validate-site.mjs`
-- `.opencode/agents/architect.md`
-- `.opencode/agents/planner.md`
-- `.opencode/agents/reviewer.md`
-- `README.md`
+- `.opencode/agents/architect.md`, `.opencode/agents/planner.md`, `.opencode/agents/reviewer.md` (Sol provider prefix repaired)
+- Initial commit `c41b071` (`main`): 22 authored files, no generated dependencies or credentials
+- Remote: `origin` → `git@github.com:texfu1112-cloud/agent_flow.git` (public)
 
 ## Verification
 
 | Check | Result | Notes |
 |---|---|---|
-| `git status --short --branch` | pass | Repository has no commits and no configured remote |
-| `gh auth status` | pass | Authenticated to GitHub as `texfu1112-cloud` with repository scope |
-| Provider/model catalog inspection | pass | `opencode/gpt-5.6-sol` does not exist; `openai/gpt-5.6-sol` is active and supports variant `max` |
-| Resolved Sol route assertions | pass | Architect, Planner, and Reviewer now resolve to `openai/gpt-5.6-sol` (`max`) |
-| Fresh-process child-agent smoke tests | pass | Architect returned ACCEPT, Planner READY, and Reviewer PASS through Builder delegation |
-| `node scripts/validate-site.mjs --self-test` | pass | Recursive four-file allowlist discovers/rejects a real nested temporary credential probe; actual terminal selectors, contrast ratios, IDs, assets, progressive baseline, and subpath boundaries validated |
+| `node scripts/validate-site.mjs --self-test` | pass | Recursive four-file allowlist rejects a real nested temporary credential probe; actual terminal selectors, contrast ratios, IDs, assets, progressive baseline, and subpath boundaries validated |
 | JavaScript syntax checks | pass | `docs/app.js` and `scripts/validate-site.mjs` parse successfully |
 | Local HTTP smoke | pass | `/`, `/styles.css`, and `/app.js` return successfully from `docs/` |
 | Playwright behavior/reflow smoke | pass | Role tabs/keyboard, theme, checklist, copy fallback, mobile focus entry/trap/restore/Escape, no-JS content, and 320/390px overflow checks passed |
 | Desktop/mobile visual inspection | pass | Hero, quick start, and role layouts render coherently in light/dark responsive screenshots |
 | OpenCode resolved configuration | pass | Five roles, repaired Sol routes, three commands, and plugin resolve correctly; agent list and plugin syntax pass |
 | Generated-artifact ignore check | pass | OpenCode dependencies, manifests, lock file, and generated ignore file remain ignored |
-| GitHub destination preflight | pass | `texfu1112-cloud/agent_flow` is available for creation |
+| Staged allowlist and secret scan | pass | Exactly 22 authored files staged; credential-pattern scan clean |
+| Initial commit | pass | `c41b071` on `main`; working tree clean after push |
+| Repository and Pages settings | pass | `texfu1112-cloud/agent_flow` is public with default branch `main`; Pages source `main:/docs`, status `built` |
+| Live site verification | pass | `https://texfu1112-cloud.github.io/agent_flow/` plus `styles.css` and `app.js` fetched with expected current content |
 
 ## Review
 
 Status: pass
-Findings: none; final delta review confirmed both remaining findings resolved with no regression, acceptance gap, test gap, or architecture drift
+Findings: none; final delta review confirmed all findings resolved with no regression, acceptance gap, test gap, or architecture drift
 
 ## Blockers
 
@@ -99,4 +90,4 @@ Findings: none; final delta review confirmed both remaining findings resolved wi
 
 ## Next Action
 
-Inspect Git status/diff/history, stage the explicit authored-file allowlist, verify the staged tree, and create the initial commit.
+Open `https://texfu1112-cloud.github.io/agent_flow/` for the tutorial, then continue project work through `/work <request>` in `/Users/xiafu/source/agent_flow`.
