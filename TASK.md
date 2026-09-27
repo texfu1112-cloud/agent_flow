@@ -1,78 +1,88 @@
 # Active Task
 
 Status: completed
-Task ID: 2026-09-25-global-workflow-install
-Updated: 2026-09-25
+Task ID: 2026-09-25-requirement-discussion-flow
+Updated: 2026-09-27
 Phase: close
 
 ## Objective
 
-Install the stateful multi-agent workflow into the global OpenCode config so Builder, the three custom commands, and compaction checkpointing are available from any project folder, without changing the user's default agent.
+Add a requirement-discussion phase that runs in the main conversation, a `/work_with_talk` command for requirements that are still vague, and a requirements-review subagent powered by gpt-5.6 Sol. Precise requirements keep using `/work` directly. After discussion and review, durable state must let the user run `/new` plus `/continue-task` to implement the reviewed requirement.
 
 ## Acceptance Criteria
 
-- `~/.config/opencode/` contains the five agent definitions, three commands, and the compaction plugin.
-- Global config declares the plugin and preserves the existing `$schema`; it does not set `default_agent`.
-- A fresh OpenCode process started outside `/Users/xiafu/source/agent_flow` resolves Builder, Explore, Architect, Planner, Reviewer, `/work`, `/checkpoint`, `/continue-task`, and the global plugin.
-- The compaction plugin injects the current project's `TASK.md` and skips cleanly when it is absent; dual loading (global plus project) does not duplicate the injected checkpoint.
-- The agent_flow project behavior and published site remain unchanged.
-- Repository docs, durable state, and the GitHub remote record the global installation.
+- Builder classifies requirement clarity at intake: precise requests proceed through `/work`; materially ambiguous requests are discussed in the main conversation instead of being guessed at.
+- `/work_with_talk` performs a discussion protocol: no implementation, prioritized bounded questions, restatement, options with trade-offs, and decisions recorded in `TASK.md`.
+- `requirements-reviewer` reviews the finalized requirement as a read-only, bounded subagent on `openai/gpt-5.6-sol` (`max`) and reports ambiguity, missing acceptance criteria, scope risks, and open questions.
+- After discussion and review, `TASK.md` holds the authoritative clarified requirement, the review verdict, and an exact next action; a fresh session's `/continue-task` can execute it without chat history.
+- Tutorial site, `README.md`, `ARCHITECTURE.md`, `DECISIONS.md`, and the site validator reflect the new role/command and stay green.
+- The global installation (`~/.config/opencode/`) is synced, the repository is committed and pushed, and the published site remains reachable.
 
 ## Constraints
 
-- Preserve the user's existing global config and unrelated global files.
-- Do not change the global default agent or global model defaults.
-- Keep the project repository as the single source of truth; the global copy deploys the same definitions.
-- Config-time changes require an OpenCode restart.
+- Discussion happens in the main conversation with Builder; do not add another primary agent.
+- Requirements review must use `openai/gpt-5.6-sol`; Sol inputs stay bounded and read-only.
+- Command name is exactly `work_with_talk`; agent name is `requirements-reviewer`.
+- No implementation work may start while the requirement is materially ambiguous.
+- Preserve existing workflows, permissions, and model routes; config-time changes require an OpenCode restart.
+- Keep generated dependencies and credentials out of Git.
 
 ## Context References
 
 - Evidence capsule: `.opencode/state/CONTEXT.md`
-- Architecture sections: `Components And Boundaries`, `External Systems`, `Invariants`
-- Decision entries: ADR-001 (Pages deployment); ADR-002 (global opt-in installation)
+- Architecture sections: `Components And Boundaries`, `Runtime And Data Flow`, `Invariants`
+- Decision entries: ADR-003 (requirement gate), ADR-002 (global install), ADR-001 (Pages)
 
 ## Architecture Gate
 
-Status: accepted by Builder (bounded operational decision recorded as ADR-002)
-Decision: deploy the same location-independent agents/commands/plugin into `~/.config/opencode/` as an explicit-opt-in global workflow; never set a global `default_agent`; keep dual-loaded compaction injection idempotent
+Status: accepted by Architect
+Decision: ADR-003 — additive pre-execution requirements lifecycle with a revisioned `Clarified Requirement`, a read-only `requirements-reviewer` on `openai/gpt-5.6-sol`, fail-closed `ready/execute` handoff, and `/continue-task` validation before implementation
 
 ## Implementation Plan
 
-- [x] Make `stateful-compaction.js` skip injection when a checkpoint block is already present, and verify single/double injection plus missing-`TASK.md` behavior.
-- [x] Copy the five agents, three commands, and the plugin into `~/.config/opencode/` and declare the plugin in the global config without touching other fields.
-- [x] Verify from a neutral folder that a fresh OpenCode process resolves all roles, commands, and the global plugin.
-- [x] Document the global installation in `README.md`, `ARCHITECTURE.md`, and `DECISIONS.md` (ADR-002).
-- [x] Update `TASK.md` and `.opencode/state/CONTEXT.md`, commit, and push; confirm the site stays green.
+- [x] Frame the task and run the architecture gate on the lifecycle proposal.
+- [x] Run the planning gate for the multi-component change set.
+- [x] Add `requirements-reviewer` agent, `work_with_talk` command, and Builder intake updates.
+- [x] Update `TASK.md` handoff semantics in `continue-task.md` and `checkpoint.md`.
+- [x] Update site content, validator, README, ARCHITECTURE, and DECISIONS (ADR-003).
+- [x] Verify: validator self-test, site behavior/reflow, OpenCode config/agents/commands.
+- [x] Resolve the first Reviewer findings and pass a delta review.
+- [x] Sync the global installation, commit, push, and verify Pages; close state.
 
 ## Progress
 
-- Completed: plugin idempotence, global deployment, neutral-folder verification, documentation, review, regression checks, and publication
+- Completed: architecture/plan gates, agent and command lifecycle, site/documentation/validator updates, focused verification, both review cycles, global sync, and publication
 - In progress: none
 - Pending: none
 
 ## Changed Paths
 
-- `.opencode/plugins/stateful-compaction.js` (idempotent checkpoint injection)
-- `README.md`, `ARCHITECTURE.md`, `DECISIONS.md`
+- `.opencode/agents/builder.md` (requirement gate, discussion protocol, clarified-requirement block, delegation allowlist)
+- `.opencode/agents/requirements-reviewer.md` (new, Sol read-only requirements review)
+- `.opencode/commands/work_with_talk.md` (new), `.opencode/commands/work.md`, `.opencode/commands/continue-task.md`, `.opencode/commands/checkpoint.md`
+- `docs/index.html`, `docs/styles.css`, `scripts/validate-site.mjs`
+- `README.md`, `ARCHITECTURE.md`, `DECISIONS.md` (ADR-003)
 - `TASK.md`, `.opencode/state/CONTEXT.md`
-- `~/.config/opencode/agents/`, `~/.config/opencode/commands/`, `~/.config/opencode/plugins/`, `~/.config/opencode/opencode.jsonc` (outside the repository)
+- `~/.config/opencode/` (global sync of six agents, four commands, and the plugin)
 
 ## Verification
 
 | Check | Result | Notes |
 |---|---|---|
-| Plugin unit behavior | pass | Single injection, duplicate prevention, missing `TASK.md` no-op, and defensive empty output all pass; syntax check passes |
-| Global copies match sources | pass | SHA-256 of plugin equal; `cmp` equal for all five agents and three commands |
-| Neutral-folder resolved config | pass | Builder/Explore on Flash, Architect/Planner/Reviewer on `openai/gpt-5.6-sol`, all three commands route to Builder, global plugin declared, `default_agent` unchanged |
-| Neutral-folder agent list and route | pass | Five roles listed; `architect` resolves to `openai/gpt-5.6-sol` |
-| Project-scope coexistence | pass | Project directory loads two plugin instances (global + project); idempotence guard prevents duplicate checkpoints |
-| Project regression | pass | Site validator self-test, `docs/app.js` syntax, plugin syntax, and project resolved config all pass |
-| Reviewer gate | pass | Focused review returned PASS with no findings, acceptance gaps, test gaps, or architecture drift |
+| OpenCode agent/command resolution | pass | `requirements-reviewer` resolves as subagent on `openai/gpt-5.6-sol` (`max`, read-only); four commands route to Builder; Builder delegation allowlist includes the new agent |
+| Live delegation smoke test | pass | Builder invoked `requirements-reviewer`; it returned `NEEDS_CLARIFICATION` for a task without a Clarified Requirement block, proving the fail-closed path |
+| `node scripts/validate-site.mjs --self-test` | pass | 4 published files, 31 IDs, six paired role tabs/panels, four command cards, exact `/work_with_talk` heading, recursive allowlist probe rejected |
+| JavaScript syntax checks | pass | `docs/app.js` and `scripts/validate-site.mjs` parse |
+| Playwright site behavior | pass | Six role tabs (click/Arrow/Home), four command cards, theme toggle, mobile menu focus/Escape, no-JS six panels, 320/390px reflow |
+| Visual inspection | pass | Six-role grid, five-chip route map, 2×2 command cards, and mobile command cards render correctly |
+| Reviewer gates | pass | First pass NEEDS_FIX addressed (resume guard for every gated phase, conditional handoff, verdict semantics, `/work` token check, checkpoint refresh); delta review confirmed the behavioral fixes and the state-text follow-up was corrected |
+| Global installation sync | pass | Six agents, four commands, and the plugin are byte-identical to the repository; a neutral-folder process resolves everything and `default_agent` remains unchanged |
+| Repository publication | pass | Changes committed and pushed to `main`; Pages rebuilt and the live site serves the updated tutorial |
 
 ## Review
 
 Status: pass
-Findings: none; scoped review found no actionable issue in the global installation or idempotence change
+Findings: none open; LLM prompt transitions are covered by prompt review plus the live reviewer smoke test because deterministic automation of model behavior is not feasible
 
 ## Blockers
 
@@ -80,4 +90,4 @@ Findings: none; scoped review found no actionable issue in the global installati
 
 ## Next Action
 
-Restart OpenCode, then use `/work <request>` or `@builder` from any project folder; re-copy global files after future workflow changes.
+Restart OpenCode to load the new agent and command, then try `/work_with_talk <模糊想法>`; the reviewed requirement will be saved for execution via `/new` and `/continue-task`.

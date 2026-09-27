@@ -7,12 +7,12 @@
     <meta name="theme-color" content="#0b1117">
     <meta
       name="description"
-      content="用一套可恢复、可审查、低上下文成本的 OpenCode 多 Agent 工作流，把复杂任务稳定地交给 Builder、Explore、Architect、Planner 与 Reviewer。"
+      content="用一套可恢复、可审查、低上下文成本的 OpenCode 多 Agent 工作流：需求模糊时先在主对话讨论并由 gpt-5.6 审阅，再交给 Builder、Explore、Architect、Planner 与 Reviewer 执行。"
     >
     <meta property="og:title" content="Agent Flow · OpenCode 多 Agent 实战指南">
     <meta
       property="og:description"
-      content="从 5 分钟上手到跨会话恢复，完整理解这套状态化 OpenCode 多 Agent 编排工程。"
+      content="从需求讨论、审阅到跨会话执行，完整理解这套状态化 OpenCode 多 Agent 编排工程。"
     >
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://texfu1112-cloud.github.io/agent_flow/">
@@ -87,8 +87,8 @@
               <em>不要让上下文失忆。</em>
             </h1>
             <p class="hero-lead">
-              一套项目级 OpenCode 编排工程：Flash 负责搜索与执行，Sol 只处理高价值判断，
-              <code>TASK.md</code> 让任务跨压缩、跨会话继续前进。
+              需求模糊时先在主对话讨论清楚，由 gpt-5.6 审阅通过后才开始实现；
+              Flash 负责搜索与执行，Sol 只处理高价值判断，<code>TASK.md</code> 让任务跨压缩、跨会话继续前进。
             </p>
             <div class="hero-actions">
               <a class="button button-primary" href="#start">
@@ -97,8 +97,8 @@
               <a class="button button-ghost" href="#workflow">先看工作流</a>
             </div>
             <dl class="hero-stats" aria-label="项目概览">
-              <div><dt>5</dt><dd>个专职角色</dd></div>
-              <div><dt>3</dt><dd>条自定义命令</dd></div>
+              <div><dt>6</dt><dd>个专职角色</dd></div>
+              <div><dt>4</dt><dd>条自定义命令</dd></div>
               <div><dt>1</dt><dd>份任务真相</dd></div>
             </dl>
           </div>
@@ -124,7 +124,7 @@
                 </div>
                 <div class="route-branch" aria-hidden="true"><span></span></div>
                 <div class="route-agents">
-                  <span>Explore</span><span>Architect</span><span>Planner</span><span>Reviewer</span>
+                  <span>Explore</span><span>Architect</span><span>Planner</span><span>Reviewer</span><span>Req. Review</span>
                 </div>
                 <div class="route-branch route-return" aria-hidden="true"><span></span></div>
                 <div class="route-node route-state">
@@ -150,6 +150,7 @@
           <p><span>01</span> 搜索过程不污染主上下文</p>
           <p><span>02</span> 长期事实写入磁盘</p>
           <p><span>03</span> 每个高风险改动都经过 Review</p>
+          <p><span>04</span> 需求审阅通过后才开始实现</p>
         </div>
       </section>
 
@@ -239,8 +240,8 @@
                   <span class="sr-only">标记“发起任务”为完成</span>
                 </label>
                 <div class="step-content">
-                  <div class="step-title"><span>STEP 04</span><h3>把完整目标交给 Builder</h3></div>
-                  <p>描述结果、约束和验收方式。Builder 会自己判断是否需要搜索、架构、计划与审查。</p>
+                  <div class="step-title"><span>STEP 04</span><h3>把目标交给 Builder：直接执行或先讨论</h3></div>
+                  <p>需求明确就用 <code>/work</code>；还模糊就用 <code>/work_with_talk</code> 先讨论，讨论结果经审阅后保存在 <code>TASK.md</code>。</p>
                   <div class="code-block code-accent">
                     <code>/work 做一个响应式登录页，沿用现有视觉风格，并运行相关检查</code>
                     <button
@@ -249,6 +250,7 @@
                       data-copy="/work 做一个响应式登录页，沿用现有视觉风格，并运行相关检查"
                     >复制</button>
                   </div>
+                  <p class="step-note">需求不清时：<code>/work_with_talk 我想加通知功能，但还没想清楚</code></p>
                 </div>
               </li>
             </ol>
@@ -261,9 +263,9 @@
           <div class="section-heading section-heading-light" data-reveal>
             <div>
               <p class="section-kicker">02 · THE CREW</p>
-              <h2 id="roles-title">五个角色，只做自己擅长的事</h2>
+              <h2 id="roles-title">六个角色，只做自己擅长的事</h2>
             </div>
-            <p>Builder 是唯一写入者。其他角色在独立 child session 中返回小而明确的结果，不把搜索轨迹塞回主会话。</p>
+            <p>Builder 是唯一写入者，也负责在主对话里讨论需求。其他角色在独立 child session 中返回小而明确的结果，不把搜索轨迹塞回主会话。</p>
           </div>
 
           <div class="role-tabs" data-role-tabs data-reveal>
@@ -320,6 +322,17 @@
               <span class="role-number">05</span>
               <strong>Reviewer</strong>
               <small>审 Diff · 找缺口</small>
+              <i>SOL</i>
+            </a>
+            <a
+              class="role-tab"
+              href="#role-panel-requirements-reviewer"
+              id="role-tab-requirements-reviewer"
+              data-role-tab="requirements-reviewer"
+            >
+              <span class="role-number">06</span>
+              <strong>Requirements Reviewer</strong>
+              <small>审需求 · 找缺口</small>
               <i>SOL</i>
             </a>
           </div>
@@ -389,6 +402,19 @@
                 <div><dt>核心产物</dt><dd>按严重度排序的 Findings</dd></div>
               </dl>
             </article>
+
+            <article class="role-panel" id="role-panel-requirements-reviewer" data-role-panel="requirements-reviewer">
+              <div class="role-panel-main">
+                <p class="role-overline">REQUIREMENTS GATE · SOL / MAX</p>
+                <h3>Requirements Reviewer 只审需求，不设计方案。</h3>
+                <p>需求讨论结束或需求变更后调用。它检查目标、范围与验收是否无歧义，指出遗漏的验收条件和范围风险；只有当前 revision 得到 READY，任务才允许进入实现。</p>
+              </div>
+              <dl class="role-facts">
+                <div><dt>何时进入</dt><dd>讨论结束或需求变更后</dd></div>
+                <div><dt>不可以做</dt><dd>编辑、实现、方案设计</dd></div>
+                <div><dt>核心产物</dt><dd>READY 或需求缺口清单</dd></div>
+              </dl>
+            </article>
           </div>
         </div>
       </section>
@@ -398,12 +424,17 @@
           <div class="section-heading" data-reveal>
             <div>
               <p class="section-kicker">03 · THE ROUTE</p>
-              <h2 id="workflow-title">一条任务，六个可控阶段</h2>
+              <h2 id="workflow-title">从需求到收尾，七个阶段</h2>
             </div>
-            <p>不是每次都调用所有 Agent。门控让简单任务保持轻量，让高风险任务得到足够推理。</p>
+            <p>不是每次都调用所有 Agent。门控让简单任务保持轻量，让高风险任务得到足够推理；需求不清时先讨论再审阅。</p>
           </div>
 
           <ol class="workflow-list" data-reveal>
+            <li>
+              <span class="workflow-index">00</span>
+              <div><p class="workflow-label">TALK</p><h3>需求不清先讨论再审阅</h3><p>用 <code>/work_with_talk</code> 在主对话里澄清目标、范围与验收，Requirements Reviewer 通过后才进入实现。</p></div>
+              <span class="workflow-owner">Optional</span>
+            </li>
             <li>
               <span class="workflow-index">01</span>
               <div><p class="workflow-label">FRAME</p><h3>把目标写成检查点</h3><p>Builder 把目标、验收条件、限制和当前阶段写入 <code>TASK.md</code>。</p></div>
@@ -467,13 +498,13 @@
           <div class="section-heading section-heading-light" data-reveal>
             <div>
               <p class="section-kicker">04 · COMMAND DECK</p>
-              <h2 id="commands-title">记住三条命令就够了</h2>
+              <h2 id="commands-title">四条命令，分清讨论与执行</h2>
             </div>
-            <p>命令不是三个独立机器人，而是三个进入 Builder 工作流的清晰入口。</p>
+            <p>命令不是四个独立机器人，而是四个进入 Builder 工作流的清晰入口：需要先想清楚时用讨论命令，其余交给执行命令。</p>
           </div>
 
           <div class="command-grid" data-reveal>
-            <article class="command-card command-card-featured">
+            <article class="command-card command-card-featured" data-command-card>
               <div class="command-head"><span>01</span><b>START</b></div>
               <h3><code>/work</code></h3>
               <p>开始一项完整工作。你的描述会成为权威需求，Builder 从 Frame 一直负责到 Close。</p>
@@ -488,8 +519,23 @@
               <p class="command-tip">最好同时说清楚：结果、不能破坏什么、怎样算完成。</p>
             </article>
 
-            <article class="command-card">
-              <div class="command-head"><span>02</span><b>SAVE</b></div>
+            <article class="command-card" data-command-card>
+              <div class="command-head"><span>02</span><b>DISCUSS</b></div>
+              <h3><code>/work_with_talk</code></h3>
+              <p>需求还模糊时使用。Builder 在主对话里和你讨论，把确认后的需求写入 TASK.md，再由 Requirements Reviewer 审阅；通过后你再用 /new + /continue-task 执行。</p>
+              <div class="command-example">
+                <code>/work_with_talk 我想给项目加通知，但还没想清楚</code>
+                <button
+                  type="button"
+                  class="copy-button"
+                  data-copy="/work_with_talk 我想给项目加通知，但还没想清楚"
+                >复制</button>
+              </div>
+              <p class="command-tip">讨论阶段不会写任何实现代码。</p>
+            </article>
+
+            <article class="command-card" data-command-card>
+              <div class="command-head"><span>03</span><b>SAVE</b></div>
               <h3><code>/checkpoint</code></h3>
               <p>准备结束或切换会话时，要求 Builder 清理并持久化可恢复的任务状态，不开始新工作。</p>
               <div class="command-example">
@@ -499,8 +545,8 @@
               <p class="command-tip">它会留下状态、已完成项、验证、阻塞和一个准确的下一步。</p>
             </article>
 
-            <article class="command-card">
-              <div class="command-head"><span>03</span><b>RESUME</b></div>
+            <article class="command-card" data-command-card>
+              <div class="command-head"><span>04</span><b>RESUME</b></div>
               <h3><code>/continue-task</code></h3>
               <p>在全新会话中只依赖磁盘状态恢复，先验证记录是否仍与工作树一致，再从 Next Action 继续。</p>
               <div class="command-example">
@@ -517,6 +563,14 @@
             <div><span>OpenCode 原生命令</span><code>/new</code></div>
             <i aria-hidden="true">→</i>
             <div><span>新会话</span><code>/continue-task</code></div>
+          </div>
+
+          <div class="session-lane" data-reveal>
+            <div><span>需求讨论</span><code>/work_with_talk</code></div>
+            <i aria-hidden="true">→</i>
+            <div><span>需求审阅</span><code>requirements-reviewer</code></div>
+            <i aria-hidden="true">→</i>
+            <div><span>新会话执行</span><code>/new → /continue-task</code></div>
           </div>
         </div>
       </section>
@@ -548,7 +602,7 @@
               <article>
                 <span class="file-badge file-task">TASK</span>
                 <h3>TASK.md</h3>
-                <p>一项任务一份可恢复检查点。目标、验收、阶段、进度、验证、阻塞和唯一下一步都在这里。</p>
+                <p>一项任务一份可恢复检查点。目标、验收、阶段、进度、验证、阻塞和唯一下一步都在这里；需求讨论型任务还带 <code>Clarified Requirement</code> 块、revision 与审阅结论。</p>
                 <small>生命周期 · 单任务，可替换</small>
               </article>
               <article>
@@ -597,9 +651,9 @@
           <div class="section-heading" data-reveal>
             <div>
               <p class="section-kicker">06 · PLAYBOOKS</p>
-              <h2 id="recipes-title">照着这四种场景开始</h2>
+              <h2 id="recipes-title">照着这五种场景开始</h2>
             </div>
-            <p>好的请求描述结果和边界，而不是替 Builder 预先决定每一步。</p>
+            <p>好的请求描述结果和边界，而不是替 Builder 预先决定每一步；想不清楚时先讨论。</p>
           </div>
 
           <div class="recipe-list" data-reveal>
@@ -653,6 +707,14 @@
                     data-copy="/work 探索项目并只更新 AGENTS.md 的真实构建命令，以及 ARCHITECTURE.md 的稳定边界和不变量；不要修改业务代码"
                   >复制</button>
                 </div>
+              </div>
+            </details>
+
+            <details>
+              <summary><span>05</span><div><strong>需求还没想清楚</strong><small>先讨论、再审阅、最后执行</small></div><i aria-hidden="true">+</i></summary>
+              <div class="recipe-body">
+                <p>不要让 Builder 猜你的意图。用讨论命令把目标、范围和验收聊清楚，审阅通过后再开新会话执行。</p>
+                <div class="mini-sequence"><code>/work_with_talk 想法</code><span>→</span><code>requirements-reviewer</code><span>→</span><code>/new</code><span>→</span><code>/continue-task</code></div>
               </div>
             </details>
           </div>
@@ -709,6 +771,10 @@
               <p>这些文件只在启动时加载。完全退出 OpenCode，从项目根目录重新启动，再运行 <code>opencode debug config</code>。</p>
             </details>
             <details>
+              <summary>需求不明确时该用哪个命令？<i aria-hidden="true">+</i></summary>
+              <p>用 <code>/work_with_talk</code>。Builder 先和你讨论并把确认后的需求写进 <code>TASK.md</code>，再由 <code>requirements-reviewer</code> 审阅；得到 <code>READY</code> 后，用 <code>/new</code> 开新会话并运行 <code>/continue-task</code> 执行。</p>
+            </details>
+            <details>
               <summary>账号访问不到配置里的模型怎么办？<i aria-hidden="true">+</i></summary>
               <p>先用 <code>/connect</code> 配置 Provider；如模型 ID 不同，只修改 <code>opencode.json</code> 与 <code>.opencode/agents/*.md</code> 中的 provider/model ID。</p>
             </details>
@@ -729,7 +795,7 @@
           <div>
             <p class="section-kicker">READY TO HAND OFF</p>
             <h2 id="closing-title">把下一项真实任务交给 Builder。</h2>
-            <p>从一个边界清楚、可以验证的需求开始。剩下的路由、状态和复核，让工作流来处理。</p>
+            <p>需求明确就直接执行；模糊就先在主对话里讨论，审阅通过后交给新会话。剩下的路由、状态和复核，让工作流来处理。</p>
           </div>
           <div class="closing-actions">
             <a class="button button-primary" href="#start">回到上手清单</a>

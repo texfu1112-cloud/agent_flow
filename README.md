@@ -30,10 +30,15 @@ GitHub Pages 固定从 `main` 分支的 `/docs` 发布；网站使用相对资�
 | Architect | `openai/gpt-5.6-sol` | `max` | 重大且长期有效的技术决策 |
 | Planner | `openai/gpt-5.6-sol` | `max` | 非平凡任务的可执行计划 |
 | Reviewer | `openai/gpt-5.6-sol` | `max` | 基于任务、diff 和测试结果做审查 |
+| Requirements Reviewer | `openai/gpt-5.6-sol` | `max` | 讨论结束后审阅需求：歧义、验收缺口、范围风险 |
 
-Builder 也是轻量控制面，因此不再增加第五个付费 Orchestrator。子 Agent 在独立 child session 中运行，避免把搜索过程和 Sol 推理长期堆在主上下文里。
+Builder 也是轻量控制面，因此不再增加付费 Orchestrator。子 Agent 在独立 child session 中运行，避免把搜索过程和 Sol 推理长期堆在主上下文里。
 
 ```text
+需求入口
+  /work            需求明确，直接进入流程
+  /work_with_talk  需求模糊，先讨论 → requirements-reviewer 审阅 → ready/execute
+
 User request
      |
      v
@@ -59,6 +64,7 @@ TASK.md checkpoint + concise result
 - Architect 只在公共接口、持久化 schema、安全边界、基础设施、跨模块重构等难逆决策上调用。
 - Planner 只在非平凡、跨组件、有迁移或明显风险的工作上调用。
 - Reviewer 只审当前任务的变更，不重新理解整个项目。
+- Requirements Reviewer 只在讨论结束或需求变更后运行，只审需求本身，不做方案设计。
 - `tool_output` 截断大输出；自动 compaction 会裁剪旧工具结果，只保留最近 6 个用户回合。
 - `.opencode/plugins/stateful-compaction.js` 在压缩前注入最新 `TASK.md`，保证压缩摘要不会丢失任务状态。
 - 一个主会话原则上只处理一个任务。无关新任务使用新会话。
@@ -79,11 +85,22 @@ TASK.md checkpoint + concise result
 
 1. 在项目目录启动或重启 OpenCode。配置文件、Agent、命令和插件不会在运行中的会话里热加载。
 2. 确保 `/connect` 已配置能访问两个模型的 provider。
-3. 用 `/work 你的需求` 启动完整流程，也可以直接向默认 Builder 描述任务。
+3. 需求明确时用 `/work 你的需求`；需求还模糊、需要先讨论时用 `/work_with_talk 你的想法`。讨论并审阅完成后，再 `/new` 开新会话并运行 `/continue-task` 执行。
 4. 需要换会话时先运行 `/checkpoint`，再运行原生 `/new`，最后在新会话运行 `/continue-task`。
-5. 需要手工调用角色时可使用 `@architect`、`@planner`、`@reviewer` 或 `@explore`。
+5. 需要手工调用角色时可使用 `@architect`、`@planner`、`@reviewer`、`@requirements-reviewer` 或 `@explore`。
 
 `/continue-task` 特意没有命名为 `/resume`，因为 `/resume` 是 OpenCode 原生的会话列表命令。
+
+### 需求讨论流程（`/work_with_talk`）
+
+1. Builder 在主对话中提问、给出选项和取舍，逐步确认目标、范围、验收与约束；只更新 `TASK.md`，不写代码。
+2. 确认后的需求写入 `TASK.md` 的 `Clarified Requirement` 块，带 `Revision` 和用户确认标记。
+3. `requirements-reviewer`（`openai/gpt-5.6-sol`）只读审阅，返回 `READY`、`NEEDS_CLARIFICATION` 或 `NEEDS_CONTEXT`。
+4. 只有当前 revision 得到 `READY`，Builder 才会写入 `Status: ready` / `Phase: execute`。
+5. 你运行 `/new` 开新会话，再运行 `/continue-task`，实现工作才开始。
+6. 审阅后需求一旦变化：revision 递增、旧结论作废、需要重新确认和重新审阅。
+
+没有 `Clarified Requirement` 块的历史任务保持原有语义；精确需求的 `/work` 也不会被强制加审阅。
 
 ## 全局安装（可选）
 

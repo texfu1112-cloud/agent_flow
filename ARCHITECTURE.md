@@ -4,15 +4,15 @@ This file records stable system boundaries and invariants. Task progress belongs
 
 ## System Summary
 
-Agent Flow is a project-level OpenCode control plane. A single primary Builder routes bounded read-only work to four child roles, persists resumable state to repository files, and injects the active checkpoint during context compaction. A dependency-free tutorial site documents that workflow and is published separately from the runtime surface.
+Agent Flow is a project-level OpenCode control plane. A single primary Builder classifies requirement clarity, runs a main-conversation discussion for materially ambiguous requests, routes bounded read-only work to five child roles, persists resumable state to repository files, and injects the active checkpoint during context compaction. A dependency-free tutorial site documents that workflow and is published separately from the runtime surface.
 
 ## Components And Boundaries
 
 | Component | Responsibility | Owns | Must Not Own |
 |---|---|---|---|
 | `opencode.json` | Project defaults, model routing, output limits, and compaction policy | Default/small models and built-in agent overrides | Role prompts or task progress |
-| `.opencode/agents/` | Builder, Explore, Architect, Planner, and Reviewer contracts | Role prompts, model choice, permissions, gate outputs | Implementation or durable task state |
-| `.opencode/commands/` | User entry points into the Builder workflow | `/work`, `/checkpoint`, `/continue-task` templates | Independent orchestration logic |
+| `.opencode/agents/` | Builder, Explore, Architect, Planner, Reviewer, and Requirements Reviewer contracts | Role prompts, model choice, permissions, gate outputs | Implementation or durable task state |
+| `.opencode/commands/` | User entry points into the Builder workflow | `/work`, `/work_with_talk`, `/checkpoint`, `/continue-task` templates | Independent orchestration logic |
 | `.opencode/plugins/stateful-compaction.js` | Preserve the active task across context compaction | Compaction hook and bounded checkpoint injection | General persistence or business logic |
 | Global OpenCode config (`~/.config/opencode/`, outside this repository) | Optional machine-wide deployment of the same workflow | Copies of agents, commands, and the plugin plus global compaction policy | Project source of truth, project default agent, or project task state |
 | `AGENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md` | Long-lived operating rules, boundaries, and accepted decisions | Stable cross-task knowledge | Current task transcripts |
@@ -23,17 +23,18 @@ Agent Flow is a project-level OpenCode control plane. A single primary Builder r
 ## Runtime And Data Flow
 
 1. OpenCode loads project configuration, agents, commands, and plugins at startup.
-2. The user invokes `/work` or talks to the default Builder.
-3. Builder frames `TASK.md`, optionally delegates repository discovery to Explore, and sends only compact evidence to Architect, Planner, or Reviewer when their gates apply.
-4. Builder alone edits implementation and state, runs verification, resolves findings, and closes or checkpoints the task.
-5. Before automatic context compaction, the plugin reads `TASK.md` and injects a bounded durable checkpoint.
-6. A new session resumes from the working tree, `TASK.md`, `CONTEXT.md`, and referenced durable constraints rather than chat history.
+2. The user invokes `/work`, `/work_with_talk`, or talks to the default Builder.
+3. Builder classifies requirement clarity. Precise requests continue directly; materially ambiguous requests and `/work_with_talk` run a main-conversation discussion, record a revisioned `Clarified Requirement` in `TASK.md`, and obtain a `requirements-reviewer` verdict before any implementation.
+4. Builder frames `TASK.md`, optionally delegates repository discovery to Explore, and sends only compact evidence to Architect, Planner, or Reviewer when their gates apply.
+5. Builder alone edits implementation and state, runs verification, resolves findings, and closes or checkpoints the task.
+6. Before automatic context compaction, the plugin reads `TASK.md` and injects a bounded durable checkpoint.
+7. A new session resumes from the working tree, `TASK.md`, `CONTEXT.md`, and referenced durable constraints rather than chat history. A reviewed `ready/execute` handoff is consumed by `/continue-task` in a fresh session.
 
 The tutorial website has no application runtime or data flow into OpenCode. GitHub Pages serves the files in `main:/docs` unchanged.
 
 ## Persistent Data
 
-- `TASK.md`: one active task with objective, phase, checklist, changed paths, verification, blockers, and one exact next action.
+- `TASK.md`: one active task with objective, phase, checklist, changed paths, verification, blockers, and one exact next action. Requirement-gated tasks additionally carry the revisioned `Clarified Requirement` block and its review verdict.
 - `.opencode/state/CONTEXT.md`: task-specific evidence below 2,500 tokens; replace when the investigation changes.
 - `ARCHITECTURE.md`: current stable boundaries and invariants.
 - `DECISIONS.md`: accepted durable decisions, newest first.
@@ -44,7 +45,7 @@ Source files and current verification results outrank all recorded state.
 
 - OpenCode loads the project and invokes configured model providers.
 - The OpenCode provider supplies `deepseek-v4.1-flash` for Builder, Explore, and lightweight system work.
-- The OpenAI provider supplies `gpt-5.6-sol` for Architect, Planner, and Reviewer.
+- The OpenAI provider supplies `gpt-5.6-sol` for Architect, Planner, Reviewer, and Requirements Reviewer.
 - GitHub stores the public repository; GitHub Pages publishes `main:/docs` under the `/agent_flow/` project path.
 
 ## Invariants
@@ -59,6 +60,8 @@ Source files and current verification results outrank all recorded state.
 - Pages deployment uses `main:/docs`; no generated deployment branch or checked-in Pages workflow is maintained.
 - Agent, command, and plugin definitions are location-independent. Installing the same files under `~/.config/opencode/` provides an explicit-opt-in global workflow; global config must not set `default_agent` or model defaults.
 - Compaction checkpoint injection is idempotent so global and project plugin scopes can load simultaneously without duplicate checkpoints.
+- Implementation never starts while a requirement phase is unresolved. `ready/execute` is valid only for a user-confirmed revision with `Open Questions: NONE` and a matching `requirements-reviewer: READY` verdict; material requirement changes increment the revision, clear the verdict, and require re-review.
+- The requirements phase is discussion and review only: no implementation edits, no broad repository scans, and no implicit approval when review is unavailable (`blocked/requirements_review` instead).
 
 ## Quality Attributes
 

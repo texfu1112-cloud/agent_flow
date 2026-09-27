@@ -721,7 +721,7 @@ html.js .icon-button {
 
 .route-agents {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 7px;
 }
 
@@ -775,7 +775,7 @@ html.js .icon-button {
 .principle-row {
   min-height: 78px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   align-items: center;
 }
 
@@ -1143,7 +1143,7 @@ html.js .copy-button {
 
 .role-tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 9px;
 }
 
@@ -1410,7 +1410,7 @@ html.js .copy-button {
 
 .command-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
 }
 
@@ -2547,11 +2547,18 @@ html[data-theme="dark"] .file-decisions { background: #31401e; color: #cce986; }
     padding: 15px;
   }
 
+  .command-example {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
   .code-block > .copy-button,
   .command-example > .copy-button {
     position: static;
     margin-top: 12px;
+    margin-left: auto;
     transform: none;
+    white-space: nowrap;
   }
 
   .role-tabs {

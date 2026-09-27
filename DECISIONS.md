@@ -15,6 +15,13 @@ Consequences: Important benefits, costs, migration, or rollback implications.
 
 ## Accepted Decisions
 
+## ADR-003: Gate materially ambiguous work through durable requirement review
+Date: 2026-09-27
+Status: accepted
+Context: Ambiguous requests cannot safely be resolved from guessed intent, and conversational clarification is lost across session replacement.
+Decision: Builder classifies actionable intake. Precise `/work` requests use the existing workflow; materially ambiguous requests and `/work_with_talk` enter a main-conversation requirements phase with no implementation. Builder records one user-confirmed, revisioned `Clarified Requirement` in `TASK.md`, then obtains a bounded read-only review from `requirements-reviewer` on `openai/gpt-5.6-sol`. Only a `READY` verdict for the current revision permits `Status: ready` and `Phase: execute`; `/continue-task` validates that handoff before entering the normal implementation gates.
+Consequences: Clarified work can resume without chat history, while precise work avoids additional latency. Material requirement changes require renewed confirmation and re-review. The state format is additive, so existing tasks remain compatible and removing the new command and role requires no data migration.
+
 ## ADR-002: Offer an explicit-opt-in global installation of the workflow
 Date: 2026-09-25
 Status: accepted

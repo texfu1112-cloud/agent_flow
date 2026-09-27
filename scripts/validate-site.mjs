@@ -10,7 +10,7 @@ const failures = []
 
 const requiredFiles = ["index.html", "styles.css", "app.js", ".nojekyll"]
 const requiredSections = ["start", "roles", "workflow", "commands", "state", "recipes", "maintain"]
-const requiredCommands = ["/work", "/checkpoint", "/continue-task", "/connect", "/new"]
+const requiredCommands = ["/work", "/work_with_talk", "/checkpoint", "/continue-task", "/connect", "/new"]
 
 function check(condition, message) {
   if (!condition) failures.push(message)
@@ -130,12 +130,21 @@ check(/<script\s[^>]*src="\.\/app\.js"[^>]*defer/i.test(html), "app.js must load
 
 const baselineRoleLinks = [...html.matchAll(/<a\b[^>]*data-role-tab=/gi)]
 const baselineRolePanels = [...html.matchAll(/<article\b[^>]*data-role-panel=[^>]*>/gi)]
-check(baselineRoleLinks.length === 5, "all five role selectors must be baseline fragment links")
-check(baselineRolePanels.length === 5, "all five role panels must exist in baseline HTML")
+check(baselineRoleLinks.length === 6, "all six role selectors must be baseline fragment links")
+check(baselineRolePanels.length === 6, "all six role panels must exist in baseline HTML")
 check(
   baselineRolePanels.every((match) => !/\shidden(?:\s|=|>)/i.test(match[0])),
   "role content must not be hidden before progressive enhancement",
 )
+
+const roleTabKeys = [...html.matchAll(/data-role-tab="([^"]+)"/g)].map((match) => match[1]).sort()
+const rolePanelKeys = [...html.matchAll(/data-role-panel="([^"]+)"/g)].map((match) => match[1]).sort()
+check(
+  roleTabKeys.length === rolePanelKeys.length && roleTabKeys.every((key, index) => key === rolePanelKeys[index]),
+  `role tab/panel keys must pair exactly: tabs=[${roleTabKeys.join(", ")}] panels=[${rolePanelKeys.join(", ")}]`,
+)
+
+check([...html.matchAll(/data-command-card/g)].length === 4, "all four command cards must be present")
 
 const idMatches = [...html.matchAll(/\bid="([^"]+)"/g)]
 const ids = idMatches.map((match) => match[1])
@@ -146,11 +155,14 @@ for (const section of requiredSections) {
   check(idSet.has(section), `missing required tutorial section: #${section}`)
 }
 
+const commandsWithoutVariants = html.replaceAll("/work_with_talk", " ")
 for (const command of requiredCommands) {
-  check(html.includes(command), `tutorial is missing required command: ${command}`)
+  const haystack = command === "/work_with_talk" ? html : commandsWithoutVariants
+  check(haystack.includes(command), `tutorial is missing required command: ${command}`)
 }
+check(/<h3><code>\/work_with_talk<\/code><\/h3>/.test(html), "the /work_with_talk command card heading must exist exactly")
 
-for (const phrase of ["Builder", "Explore", "Architect", "Planner", "Reviewer", "TASK.md", "CONTEXT.md"]) {
+for (const phrase of ["Builder", "Explore", "Architect", "Planner", "Reviewer", "Requirements Reviewer", "requirements-reviewer", "Clarified Requirement", "TASK.md", "CONTEXT.md"]) {
   check(html.includes(phrase), `tutorial is missing required concept: ${phrase}`)
 }
 

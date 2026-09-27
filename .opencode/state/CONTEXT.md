@@ -1,47 +1,51 @@
 # Context Capsule
 
-Task ID: 2026-09-25-global-workflow-install
-Generated: 2026-09-25
-Scope: opt-in global OpenCode workflow installation
+Task ID: 2026-09-25-requirement-discussion-flow
+Generated: 2026-09-27
+Scope: requirement discussion, review, and cross-session handoff
 
 ## Investigation Question
 
-Why does the workflow disappear in other folders, and how is the same workflow deployed machine-wide without changing unrelated projects?
+How does the workflow gate materially ambiguous requirements through discussion and review before implementation, while keeping precise requests direct?
 
 ## Relevant Evidence
 
-- OpenCode configuration is project-scoped: it loads `opencode.json` and `.opencode/` from the opened folder up to the git worktree root, so agents, commands, and plugins defined only in `agent_flow` are unavailable elsewhere.
-- Global deployment now lives in `~/.config/opencode/`: `agents/` (five roles), `commands/` (three commands), `plugins/stateful-compaction.js`, and `opencode.jsonc`.
-- Global `opencode.jsonc` declares the plugin with a `file:///` URL and adopts the project compaction/tool-output/internal-agent policy, but deliberately omits `default_agent`, `model`, and `small_model`.
-- Neutral-folder verification with OpenCode 1.18.18 resolved all five roles, all three commands, and the global plugin; `default_agent` remained unset there.
-- A project directory loads both the global and project plugin instances. `stateful-compaction.js` now detects an existing `## Durable task checkpoint` entry and skips, preventing duplicate injection; it also returns safely when `output.context` is missing or `TASK.md` does not exist.
-- All global copies are byte-identical to the repository sources (`cmp` for agents/commands, SHA-256 for the plugin).
-- The repository remains the single source of truth; global installation is documented in `README.md` under "全局安装（可选）" and recorded as ADR-002.
+- ADR-003 defines the lifecycle: Builder classifies intake; precise `/work` continues directly; materially ambiguous requests and `/work_with_talk` run a main-conversation discussion with no implementation; Builder records one user-confirmed revisioned `Clarified Requirement` in `TASK.md`; `requirements-reviewer` returns `READY | NEEDS_CLARIFICATION | NEEDS_CONTEXT`; only `READY` for the current revision permits `ready/execute`; `/continue-task` validates the handoff in a fresh session.
+- `.opencode/agents/builder.md` now owns the requirement gate, discussion protocol, clarified-requirement block format, and delegation allowlist including `requirements-reviewer`.
+- `.opencode/agents/requirements-reviewer.md` is a read-only Sol subagent (`openai/gpt-5.6-sol`, `max`, `steps: 12`, no bash/edit/task/webfetch/question) with a fixed compact verdict format.
+- `.opencode/commands/work_with_talk.md` forces discussion; `.opencode/commands/work.md` classifies intake; `.opencode/commands/continue-task.md` applies a readiness guard to every gated implementation phase and fails closed; `.opencode/commands/checkpoint.md` preserves revision, confirmation, verdict, and reviewed revision.
+- Resolved config verified `requirements-reviewer` and all four commands from both the project and a neutral directory; `agent list` shows six roles; Builder may delegate to `requirements-reviewer`.
+- Live delegation smoke test: Builder invoked `requirements-reviewer`, which returned `NEEDS_CLARIFICATION` for a task lacking a Clarified Requirement block, confirming the fail-closed path.
+- Site updates: six role tabs/panels (paired keys asserted), four command cards with the exact `/work_with_talk` heading, `Clarified Requirement` and revision concepts, five-chip route map, two session lanes. Validator self-test, Playwright behavior/no-JS/reflow, and visual checks pass.
+- Global installation re-synced byte-identically for six agents, four commands, and the idempotent plugin; global `default_agent` remains unset.
+- Reviewer expectation for this task: first pass NEEDS_FIX (resume guard, stale checkpoint, conditional handoff, verdict semantics, `/work` token check); all fixes verified, delta review confirmed the behavioral fixes with only a state-text follow-up, which was corrected.
 
 ## Current Flow
 
-- Any folder: `/work <request>` or `@builder` activates the workflow. The plugin reads that project's `TASK.md`; without the file it no-ops. In `agent_flow`, project config still makes Builder the default agent and both plugin instances coexist safely.
+- `/work_with_talk` → discussion in the main conversation → user-confirmed clarification recorded in `TASK.md` → `requirements-reviewer` → `ready/execute` → `/new` → `/continue-task` implements. `/work` stays direct for precise requests.
 
 ## Constraints And Conventions
 
-- Global config must keep `default_agent` and model defaults unchanged.
-- Updating workflow definitions means re-copying to `~/.config/opencode/` and restarting OpenCode; config-time files are not hot-reloaded.
-- Do not install a global `AGENTS.md`; the state protocol ships inside the agent and command definitions to avoid imposing it on every project.
+- The requirements phase never edits implementation files and never scans broadly; Sol inputs stay bounded.
+- Missing review is never approval; unavailable review yields `blocked/requirements_review`.
+- Material requirement changes increment the revision, clear the verdict, require renewed confirmation, and require re-review.
+- Config-time changes require an OpenCode restart; global copies must be refreshed from the repository after changes.
 
 ## Likely Change Surface
 
-- Workflow definition changes: update the repository files first, then re-copy to the global directories.
-- Site changes remain `docs/` plus `scripts/validate-site.mjs`.
+- Workflow changes: `.opencode/agents/`, `.opencode/commands/`, then re-copy to `~/.config/opencode/`.
+- Site changes: `docs/` plus `scripts/validate-site.mjs`.
 
 ## Verification Commands
 
-- Plugin behavior: direct `node --input-type=module` invocation from the repository
-- Global config: `opencode debug config`, `opencode agent list`, `opencode debug agent architect` from a non-project directory
-- Project regression: `node scripts/validate-site.mjs --self-test`, `node --check docs/app.js`, project `debug config`
+- `node scripts/validate-site.mjs --self-test`
+- `node --check docs/app.js`
+- `opencode debug config`, `opencode agent list`, `opencode debug agent requirements-reviewer`
+- Playwright smoke for six role tabs, four command cards, no-JS, and 320/390px reflow
 
 ## Unknowns
 
-- The OpenCode client must be restarted for the running session to see the new global agents and plugin; that restart is the user's action.
+- LLM prompt transitions (`/continue-task` fail-closed variants) are reviewed and smoke-tested but not deterministically automated; manual verification remains the practical check.
 
 ## Capsule Rule
 
