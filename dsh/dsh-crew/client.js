@@ -41,9 +41,13 @@ window.__ModuleLoader__.load({
       saveError: 'The save request failed; the draft was kept, try again.',
       reset: 'Discard changes',
       ariaLabel: '{role} {field}',
-      catalogHint: 'Dropdown suggestions come from the current model catalog; you can still type a custom value.',
+      catalogHint: 'Options come from the live model catalog ({providers} providers, {models} models); you can still type a custom value.',
+      catalogLoading: 'Loading the model catalog…',
       catalogUnavailable: 'The model catalog is unavailable here; type the provider and model ids directly.',
+      customOption: 'Custom…',
+      useList: 'Pick from list',
       catalogError: 'Could not load the model catalog: {message}',
+      catalogTimeout: 'Timed out loading the model catalog; type the ids directly or retry.',
       retry: 'Retry',
     };
 
@@ -81,9 +85,13 @@ window.__ModuleLoader__.load({
       saveError: '保存请求失败；草稿已保留，请重试。',
       reset: '放弃改动',
       ariaLabel: '{role} {field}',
-      catalogHint: '下拉建议来自当前模型目录；也可以直接输入自定义值。',
+      catalogHint: '选项来自当前模型目录（{providers} 个 provider、{models} 个模型）；也可以直接输入自定义值。',
+      catalogLoading: '正在加载模型目录…',
       catalogUnavailable: '此处未提供模型目录，可直接输入 provider 与 model。',
+      customOption: '自定义…',
+      useList: '从列表选择',
       catalogError: '模型目录加载失败：{message}',
+      catalogTimeout: '模型目录加载超时；可直接手输，或稍后重试。',
       retry: '重试',
     };
 
@@ -103,9 +111,6 @@ window.__ModuleLoader__.load({
       { id: 'persona', labelKey: 'fieldPersona', placeholderKey: 'placeholderPersona', multiline: true, wide: true },
     ];
 
-    /** Datalist id prefix unique to this page instance. */
-    const LIST_PREFIX = 'dsh-crew-catalog-' + Math.random().toString(36).slice(2, 8);
-
     /**
      * Read-only store for the Host model catalog powering the input suggestions.
      * The page keeps working as plain text inputs when the catalog cannot be read
@@ -114,9 +119,20 @@ window.__ModuleLoader__.load({
      * @returns a subscribeable snapshot store with a lazy load().
      */
     function createCatalogStore(ctx) {
-      let state = { status: 'idle', groups: [], failures: [], error: null };
+      let state = { status: 'idle', groups: [], failures: [], error: null, timedOut: false };
       const listeners = new Set();
       let inflight;
+      /** Bound the model catalog round-trip; the page must never wait forever. */
+      const CATALOG_TIMEOUT_MS = 8000;
+      const withTimeout = (promise, ms) => {
+        let timer;
+        return Promise.race([
+          promise,
+          new Promise((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+          }),
+        ]).finally(() => clearTimeout(timer));
+      };
       const publish = (patch) => {
         state = { ...state, ...patch };
         for (const listener of listeners) listener();
@@ -126,30 +142,37 @@ window.__ModuleLoader__.load({
         return await namespace[method]();
       };
       const read = async (remote) => {
+        // The cheap provider directory runs in parallel: even if the richer
+        // catalog stalls, provider suggestions can still appear.
+        const providersTask = (async () => {
+          try {
+            return await callRemote(remote === undefined ? undefined : remote.llm, 'listProviders');
+          } catch (error) {
+            return undefined;
+          }
+        })();
         let catalogResult;
+        let timedOut = false;
         try {
-          catalogResult = await callRemote(remote === undefined ? undefined : remote.session, 'modelCatalog');
+          const catalogTask = callRemote(remote === undefined ? undefined : remote.session, 'modelCatalog');
+          catalogResult = catalogTask === undefined ? undefined : await withTimeout(catalogTask, CATALOG_TIMEOUT_MS);
         } catch (error) {
+          timedOut = true;
           catalogResult = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
         }
-        if (catalogResult !== undefined && catalogResult !== null && catalogResult.ok === true) {
+        if (!timedOut && catalogResult !== undefined && catalogResult !== null && catalogResult.ok === true) {
           const value = catalogResult.value ?? {};
           return {
             groups: Array.isArray(value.groups) ? value.groups : [],
             failures: Array.isArray(value.failures) ? value.failures : [],
             error: null,
+            timedOut: false,
           };
         }
         const message = catalogResult !== undefined && catalogResult !== null && catalogResult.ok === false
           ? catalogResult.error && catalogResult.error.message
           : undefined;
-        // Fallback: at least suggest the configured provider ids.
-        let providersResult;
-        try {
-          providersResult = await callRemote(remote === undefined ? undefined : remote.llm, 'listProviders');
-        } catch (error) {
-          providersResult = undefined;
-        }
+        const providersResult = await providersTask;
         const providers = providersResult !== undefined && providersResult !== null && providersResult.ok === true
           ? providersResult.value
           : Array.isArray(providersResult) ? providersResult : undefined;
@@ -158,9 +181,10 @@ window.__ModuleLoader__.load({
             groups: providers.map((provider) => ({ id: provider.id, name: provider.name ?? provider.id, models: [] })),
             failures: [],
             error: message ?? null,
+            timedOut,
           };
         }
-        return { groups: [], failures: [], error: message ?? 'model catalog unavailable' };
+        return { groups: [], failures: [], error: message ?? 'model catalog unavailable', timedOut };
       };
       return {
         getSnapshot: () => state,
@@ -178,8 +202,8 @@ window.__ModuleLoader__.load({
           }
           publish({ status: 'loading', error: null });
           inflight = read(remote)
-            .then(({ groups, failures, error }) => {
-              publish({ status: groups.length > 0 ? 'ready' : 'error', groups, failures, error });
+            .then(({ groups, failures, error, timedOut }) => {
+              publish({ status: groups.length > 0 ? 'ready' : 'error', groups, failures, error, timedOut: timedOut === true });
               return state;
             })
             .finally(() => {
@@ -283,6 +307,15 @@ window.__ModuleLoader__.load({
         border: '1px solid ' + COLORS.border, borderRadius: 4, background: COLORS.layer2,
         color: COLORS.primary, fontSize: 12, fontFamily: 'inherit', resize: 'vertical',
       },
+      select: {
+        width: '100%', minWidth: 110, boxSizing: 'border-box', padding: '4px 6px',
+        border: '1px solid ' + COLORS.border, borderRadius: 4, background: COLORS.layer2,
+        color: COLORS.primary, fontSize: 12, cursor: 'pointer',
+      },
+      linkButton: {
+        display: 'inline', marginTop: 2, padding: 0, border: 'none', background: 'transparent',
+        color: COLORS.brand, fontSize: 11, cursor: 'pointer', textAlign: 'left',
+      },
       actions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
       saveButton: {
         padding: '5px 12px', border: '1px solid ' + COLORS.brand, borderRadius: 4,
@@ -362,6 +395,7 @@ window.__ModuleLoader__.load({
         if (catalog !== undefined && catalog !== null && typeof catalog.load === 'function') catalog.load();
       }, [catalog]);
       const [draft, setDraft] = React.useState({});
+      const [modes, setModes] = React.useState({});
       const [status, setStatus] = React.useState('idle');
       const ready = snapshot.status === 'ready';
       const readOnly = snapshot.writable === false;
@@ -377,8 +411,13 @@ window.__ModuleLoader__.load({
         setStatus('idle');
       };
 
+      const setMode = (path, mode) => {
+        setModes((previous) => ({ ...previous, [path]: mode }));
+      };
+
       const reset = () => {
         setDraft({});
+        setModes({});
         setStatus('idle');
       };
 
@@ -418,21 +457,34 @@ window.__ModuleLoader__.load({
       }
 
       const notice = ready ? null : t(snapshot.status === 'loading' ? 'loading' : 'unavailable');
+
+      let providerCount = 0;
+      let modelCount = 0;
+      for (const group of (Array.isArray(catalogState.groups) ? catalogState.groups : [])) {
+        providerCount += 1;
+        modelCount += Array.isArray(group.models) ? group.models.length : 0;
+      }
       let catalogNote = null;
       if (catalogState.status === 'ready') {
-        catalogNote = h('p', { style: styles.hint }, t('catalogHint'));
+        catalogNote = h('p', { style: styles.hint },
+          t('catalogHint', { providers: String(providerCount), models: String(modelCount) }));
+      } else if (catalogState.status === 'loading' || catalogState.status === 'idle') {
+        catalogNote = h('p', { style: styles.hint }, t('catalogLoading'));
       } else if (catalogState.status === 'unavailable') {
         catalogNote = h('p', { style: styles.hint }, t('catalogUnavailable'));
       } else if (catalogState.status === 'error') {
         catalogNote = h('p', { style: styles.hint },
-          t('catalogError', { message: catalogState.error ?? '' }),
+          catalogState.timedOut === true
+            ? t('catalogTimeout')
+            : t('catalogError', { message: catalogState.error ?? '' }),
           ' ',
           h('button', {
             type: 'button',
             onClick: () => catalog.load(true),
-            style: styles.resetButton,
+            style: styles.linkButton,
           }, t('retry')));
       }
+
       const header = h('thead', null, h('tr', null,
         h('th', { scope: 'col', style: styles.th }, t('roleColumn')),
         FIELDS.map((field) => h('th', { key: field.id, scope: 'col', style: styles.th }, t(field.labelKey)))));
@@ -440,54 +492,79 @@ window.__ModuleLoader__.load({
         const roleName = t(role.nameKey);
         const providerId = valueOf('roles.' + role.id + '.provider').trim();
         const modelId = valueOf('roles.' + role.id + '.model').trim();
-        const providerListId = LIST_PREFIX + '-providers-' + role.id;
-        const modelListId = LIST_PREFIX + '-models-' + role.id;
-        const effortListId = LIST_PREFIX + '-efforts-' + role.id;
         return h('tr', { key: role.id },
           h('td', { style: styles.roleCell },
             h('span', { style: styles.roleName }, roleName),
             h('span', { style: styles.roleHint }, t(role.hintKey))),
           FIELDS.map((field) => {
             const path = 'roles.' + role.id + '.' + field.id;
+            const value = valueOf(path);
+            const ariaLabel = t('ariaLabel', { role: roleName, field: t(field.labelKey) });
             const controlStyle = field.multiline
               ? styles.textarea
               : field.mono
                 ? { ...styles.input, fontFamily: MONO }
                 : styles.input;
-            const suggestions = suggestionsFor(field.id, catalogState, providerId, modelId);
-            const listId = field.id === 'provider'
-              ? providerListId
-              : field.id === 'model'
-                ? modelListId
-                : field.id === 'reasoningEffort'
-                  ? effortListId
-                  : undefined;
-            const useList = listId !== undefined && suggestions.length > 0;
             const common = {
-              'aria-label': t('ariaLabel', { role: roleName, field: t(field.labelKey) }),
+              'aria-label': ariaLabel,
               disabled,
               placeholder: t(field.placeholderKey),
               spellCheck: false,
               style: controlStyle,
-              value: valueOf(path),
+              value,
               onChange: (event) => edit(path, event.target.value),
-              ...(useList ? { list: listId } : {}),
             };
+            const suggestions = field.id === 'persona'
+              ? []
+              : suggestionsFor(field.id, catalogState, providerId, modelId);
+            const mode = modes[path];
+            const knownValue = value === '' || suggestions.some((option) => option.value === value);
+            const selectable = suggestions.length > 0 && mode !== 'text' && (knownValue || mode === 'list');
+            let control;
+            let action = null;
+            if (selectable) {
+              const options = field.id === 'reasoningEffort'
+                ? [{ value: '', label: t('placeholderEffort') }]
+                : value === ''
+                  ? [{ value: '', label: t(field.placeholderKey) }]
+                  : [];
+              if (value !== '' && !suggestions.some((option) => option.value === value)) {
+                options.push({ value, label: value });
+              }
+              options.push(...suggestions);
+              control = h('select', {
+                'aria-label': ariaLabel,
+                disabled,
+                style: styles.select,
+                value,
+                onChange: (event) => {
+                  const next = event.target.value;
+                  if (next === '__custom__') {
+                    setMode(path, 'text');
+                    return;
+                  }
+                  setMode(path, undefined);
+                  edit(path, next);
+                },
+              },
+                ...options.map((option) => h('option', { key: option.value, value: option.value }, option.label)),
+                h('option', { key: '__custom__', value: '__custom__' }, t('customOption')));
+            } else if (field.multiline) {
+              control = h('textarea', { ...common, rows: 2 });
+            } else {
+              control = h('input', { ...common, type: 'text' });
+            }
+            if (suggestions.length > 0 && !selectable && mode !== 'list') {
+              action = h('button', {
+                type: 'button',
+                onClick: () => setMode(path, 'list'),
+                style: styles.linkButton,
+              }, t('useList'));
+            }
             return h('td', {
               key: field.id,
               style: field.wide ? { ...styles.cell, minWidth: 220 } : styles.cell,
-            },
-              field.multiline
-                ? h('textarea', { ...common, rows: 2 })
-                : h('input', { ...common, type: 'text' }),
-              useList
-                ? h('datalist', { id: listId },
-                  suggestions.map((option) => h('option', {
-                    key: option.value,
-                    value: option.value,
-                    label: option.label,
-                  })))
-                : null);
+            }, control, action);
           }));
       }));
 
