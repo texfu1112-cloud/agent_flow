@@ -48,7 +48,7 @@ Rules that keep them from stepping on each other:
 # Desktop: Plugins -> Add plugin -> Install third-party plugin
 #   folder:   /abs/path/to/agent_flow/dsh/dsh-crew   (local dev; run pnpm install there first)
 #   git:      git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew
-#   tarball:  /abs/path/agent-flow-dsh-crew-0.2.3.tgz
+#   tarball:  /abs/path/agent-flow-dsh-crew-0.2.4.tgz
 #   npm name: @agent-flow/dsh-crew                    (after publishing)
 
 # CLI (same forms; folder path also works)
@@ -98,7 +98,7 @@ ruby -ryaml -e '
   raise "expected one insert entry" unless doc.is_a?(Array) && doc.size == 1 && doc[0]["insert"]
   rows = doc[0]["insert"]
   presets = rows.select { |r| r["name"] == "@deepseek-ai/dsh-agent-preset" }
-  raise "expected 5 presets, got #{presets.size}" unless presets.size == 5
+  raise "expected 6 presets, got #{presets.size}" unless presets.size == 6
   raise "missing crew-config row" unless rows.any? { |r| r["id"] == "crew-config" && r["name"] == "@agent-flow/dsh-crew" }
   puts "ok: #{presets.size} presets + crew-config"
 '

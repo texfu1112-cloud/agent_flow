@@ -50,6 +50,27 @@ window.__ModuleLoader__.load({
       catalogTimeout: 'Timed out loading the model catalog; type the ids directly or retry.',
       catalogFallback: 'The live model catalog is unavailable, so built-in DeepSeek options are shown; you can still type custom values.',
       retry: 'Retry',
+      customRolesTitle: 'Custom roles',
+      customRolesHint: 'Each saved role id becomes a crew_<id> tool whose children run on the read-only crew-role preset. Saving applies to the next delegation, without restarting the session.',
+      customRolesLoading: 'Loading custom roles…',
+      customRolesLoadError: 'Could not load custom roles: {message}',
+      customRolesLoadTimeout: 'Timed out loading custom roles; retry.',
+      customRolesEmpty: 'There are no custom roles yet. Use the Add role button to define one.',
+      customRolesSaveError: 'The save request failed; check the custom roles and try again.',
+      customRolesValidation: 'Check the custom roles: {message}',
+      customRolesRejected: 'The Host rejected the custom roles: {message}',
+      customRolesSaved: 'Custom roles saved; the next delegation can use them.',
+      saveCustomRoles: 'Save custom roles',
+      addRole: 'Add role',
+      removeRole: 'Remove',
+      roleId: 'ID',
+      roleName: 'Name',
+      roleRow: 'row {row}',
+      placeholderRoleId: 'e.g. debugger',
+      validationId: 'row {row}: ID "{id}" must match {pattern}',
+      validationDuplicate: 'row {row}: duplicate ID "{id}"',
+      validationProvider: 'row {row}: Provider is required',
+      validationModel: 'row {row}: Model is required',
     };
 
     /** Simplified Chinese copy for the crew configuration page. */
@@ -95,6 +116,27 @@ window.__ModuleLoader__.load({
       catalogTimeout: '模型目录加载超时；可直接手输，或稍后重试。',
       catalogFallback: '模型目录不可用，已使用内置的 DeepSeek 选项；仍可直接输入自定义值。',
       retry: '重试',
+      customRolesTitle: '自定义角色',
+      customRolesHint: '保存后每个自定义角色 id 都会成为 crew_<id> 工具，其子会话使用只读的 crew-role 预设；从下一次委派起生效，无需重启会话。',
+      customRolesLoading: '正在加载自定义角色…',
+      customRolesLoadError: '自定义角色加载失败：{message}',
+      customRolesLoadTimeout: '自定义角色加载超时；请重试。',
+      customRolesEmpty: '还没有自定义角色，点击“添加角色”创建一个。',
+      customRolesSaveError: '保存请求失败；请检查自定义角色后重试。',
+      customRolesValidation: '请检查自定义角色：{message}',
+      customRolesRejected: 'Host 拒绝了自定义角色：{message}',
+      customRolesSaved: '自定义角色已保存；下一次委派即可使用。',
+      saveCustomRoles: '保存自定义角色',
+      addRole: '添加角色',
+      removeRole: '移除',
+      roleId: 'ID',
+      roleName: '名称',
+      roleRow: '第 {row} 行',
+      placeholderRoleId: '例如 debugger',
+      validationId: '第 {row} 行：ID "{id}" 必须匹配 {pattern}',
+      validationDuplicate: '第 {row} 行：ID "{id}" 重复',
+      validationProvider: '第 {row} 行：必须填写服务方',
+      validationModel: '第 {row} 行：必须填写模型',
     };
 
     /** Rows of the settings table, in the host schema's role order. */
@@ -113,11 +155,23 @@ window.__ModuleLoader__.load({
       { id: 'persona', labelKey: 'fieldPersona', placeholderKey: 'placeholderPersona', multiline: true, wide: true },
     ];
 
+    /** Suggestion-backed leaves of one custom role row; persona is edited separately. */
+    const CUSTOM_FIELDS = FIELDS.filter((field) => field.id !== 'persona');
+
     /** HTTP route the Host half serves the live model catalog on (same origin). */
     const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
 
-    /** Bound for one catalog fetch; the page falls back to built-in options after it. */
-    const CATALOG_TIMEOUT_MS = 8000;
+    /** HTTP route the Host half serves the user-defined roles on (same origin). */
+    const ROLES_PATH = '/agent-flow/dsh-crew/roles';
+
+    /** Bound for one HTTP request; the page falls back or reports an error after it. */
+    const REQUEST_TIMEOUT_MS = 8000;
+
+    /** Pause before re-reading the roles after an ambiguous save response. */
+    const RECHECK_DELAY_MS = 1200;
+
+    /** Custom-role limits used when the Host route does not return them. */
+    const DEFAULT_LIMITS = { maxRoles: 8, idPattern: '^[a-z][a-z0-9_]{0,31}$' };
 
     /** Built-in DeepSeek effort ids used when the live catalog is unavailable. */
     const FALLBACK_EFFORTS = [
@@ -176,7 +230,7 @@ window.__ModuleLoader__.load({
       };
       const read = async () => {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), CATALOG_TIMEOUT_MS);
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
           const response = await fetch(CATALOG_PATH, {
             method: 'GET',
@@ -214,6 +268,87 @@ window.__ModuleLoader__.load({
           inflight = read()
             .then(({ groups, failures, error, timedOut, fallback }) => {
               publish({ status: 'ready', groups, failures, error, timedOut, fallback });
+              return state;
+            })
+            .finally(() => {
+              inflight = undefined;
+            });
+          return inflight;
+        },
+      };
+    }
+
+    /**
+     * Read/write store for the Host's user-defined crew roles.
+     * A GET feeds the editor; saving rewrites the profile configuration, which
+     * can restart the Host plugin, so the page confirms ambiguous responses
+     * with one later GET before reporting failure.
+     */
+    function createRolesStore() {
+      let state = { status: 'idle', roles: [], limits: { ...DEFAULT_LIMITS }, error: null, timedOut: false };
+      const listeners = new Set();
+      let inflight;
+      const publish = (patch) => {
+        state = { ...state, ...patch };
+        for (const listener of listeners) listener();
+      };
+      const read = async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(ROLES_PATH, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { accept: 'application/json' },
+            signal: controller.signal,
+          });
+          let payload;
+          try {
+            payload = await response.json();
+          } catch {
+            payload = undefined;
+          }
+          if (!response.ok) {
+            const reason = payload !== null && payload !== undefined && typeof payload.error === 'string'
+              ? payload.error
+              : 'HTTP ' + String(response.status);
+            throw new Error(reason);
+          }
+          return {
+            roles: normalizeRoles(payload !== null && payload !== undefined ? payload.roles : undefined),
+            limits: normalizeLimits(payload !== null && payload !== undefined ? payload.limits : undefined),
+            error: null,
+            timedOut: false,
+          };
+        } catch (error) {
+          const aborted = error instanceof Error && error.name === 'AbortError';
+          return {
+            roles: [],
+            limits: { ...DEFAULT_LIMITS },
+            error: aborted ? 'timed out' : (error instanceof Error ? error.message : String(error)),
+            timedOut: aborted,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      return {
+        getSnapshot: () => state,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        load: (force = false) => {
+          if (inflight !== undefined && force !== true) return inflight;
+          if (force !== true && (state.status === 'ready' || state.status === 'error')) return Promise.resolve(state);
+          publish({ status: 'loading', error: null });
+          inflight = read()
+            .then((result) => {
+              if (result.error !== null) {
+                publish({ status: 'error', error: result.error, timedOut: result.timedOut });
+              } else {
+                publish({ status: 'ready', roles: result.roles, limits: result.limits, error: null, timedOut: false });
+              }
               return state;
             })
             .finally(() => {
@@ -269,6 +404,133 @@ window.__ModuleLoader__.load({
       return [];
     }
 
+    /** Coerce a possibly-missing string leaf of a JSON payload to a string. */
+    function stringOf(value) {
+      return typeof value === 'string' ? value : '';
+    }
+
+    /** Normalize one role read from the Host; missing fields become ''. */
+    function normalizeRole(role) {
+      if (role === null || typeof role !== 'object') {
+        return { id: '', name: '', provider: '', model: '', reasoningEffort: '', persona: '' };
+      }
+      return {
+        id: stringOf(role.id).trim(),
+        name: stringOf(role.name).trim(),
+        provider: stringOf(role.provider).trim(),
+        model: stringOf(role.model).trim(),
+        reasoningEffort: stringOf(role.reasoningEffort).trim(),
+        persona: stringOf(role.persona),
+      };
+    }
+
+    /** Normalize a list of roles read from the Host. */
+    function normalizeRoles(roles) {
+      return Array.isArray(roles) ? roles.map(normalizeRole) : [];
+    }
+
+    /** Deep-clone a normalized role list into editable draft rows. */
+    function cloneRoles(roles) {
+      return normalizeRoles(roles).map((role) => ({ ...role }));
+    }
+
+    /** Normalize the custom-role limits, falling back to the built-in values. */
+    function normalizeLimits(limits) {
+      const source = limits !== null && typeof limits === 'object' ? limits : {};
+      const maxRoles = Number.isInteger(source.maxRoles) && source.maxRoles > 0
+        ? source.maxRoles
+        : DEFAULT_LIMITS.maxRoles;
+      const idPattern = typeof source.idPattern === 'string' && source.idPattern !== ''
+        ? source.idPattern
+        : DEFAULT_LIMITS.idPattern;
+      return { maxRoles, idPattern };
+    }
+
+    /** Compile the limits id pattern, tolerating a malformed Host pattern. */
+    function idMatcher(limits) {
+      try {
+        return new RegExp(limits.idPattern);
+      } catch {
+        return new RegExp(DEFAULT_LIMITS.idPattern);
+      }
+    }
+
+    /** The id pattern shown to the user, falling back when the Host pattern is malformed. */
+    function idPatternText(limits) {
+      try {
+        new RegExp(limits.idPattern);
+        return limits.idPattern;
+      } catch {
+        return DEFAULT_LIMITS.idPattern;
+      }
+    }
+
+    /** Wait for the Host plugin to settle before confirming an ambiguous save. */
+    function delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** Compare two normalized role lists field by field. */
+    function sameRoles(left, right) {
+      if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+      const fields = ['id', 'name', 'provider', 'model', 'reasoningEffort', 'persona'];
+      return left.every((role, index) => fields.every((field) => role[field] === right[index][field]));
+    }
+
+    /**
+     * Validate the custom-role draft before saving it.
+     * @param roles - normalized draft rows.
+     * @param limits - { maxRoles, idPattern } from the Host.
+     * @param t - locale reader.
+     * @returns the first localized validation message, or null when valid.
+     */
+    function validateRoleDraft(roles, limits, t) {
+      const matcher = idMatcher(limits);
+      const pattern = idPatternText(limits);
+      const seen = new Set();
+      for (let index = 0; index < roles.length; index += 1) {
+        const role = roles[index];
+        const row = String(index + 1);
+        if (role.id === '' || matcher.test(role.id) !== true) return t('validationId', { row, id: role.id, pattern });
+        if (seen.has(role.id)) return t('validationDuplicate', { row, id: role.id });
+        seen.add(role.id);
+        if (role.provider === '') return t('validationProvider', { row });
+        if (role.model === '') return t('validationModel', { row });
+      }
+      return null;
+    }
+
+    /**
+     * Re-read the custom roles once after an ambiguous POST and compare them with
+     * what was submitted: a save that restarted the Host may have applied before
+     * its HTTP response was lost.
+     * @param submitted - the normalized list that was POSTed.
+     * @returns whether the Host now serves exactly the submitted list.
+     */
+    async function confirmRolesSaved(submitted) {
+      await delay(RECHECK_DELAY_MS);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(ROLES_PATH, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (!response.ok) return false;
+        const payload = await response.json();
+        return sameRoles(
+          normalizeRoles(payload !== null && payload !== undefined ? payload.roles : undefined),
+          submitted,
+        );
+      } catch {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     /** Theme aliases: every color comes from a DSH token so both themes stay readable. */
     const COLORS = {
       layer1: 'var(--dsw-alias-bg-layer-1)',
@@ -288,6 +550,8 @@ window.__ModuleLoader__.load({
     const styles = {
       section: { display: 'flex', flexDirection: 'column', gap: 8, color: COLORS.primary, fontSize: 13, lineHeight: 1.5 },
       title: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.primary },
+      subTitle: { margin: 0, fontSize: 13, fontWeight: 600, color: COLORS.primary },
+      divider: { width: '100%', margin: '4px 0', border: 'none', borderTop: '1px solid ' + COLORS.border },
       description: { margin: 0, color: COLORS.secondary },
       hint: { margin: 0, color: COLORS.secondary, fontSize: 12 },
       notice: {
@@ -375,6 +639,77 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Render one editable value with optional suggestions: a <select> offering the
+     * known values plus a "Custom…" escape hatch, or a free-text input/textarea with
+     * a "Pick from list" action back to the list. Shared by the role table and the
+     * custom-role editor so both use the same styles and switching behavior.
+     * @param options - { t, value, suggestions, mode, disabled, ariaLabel, placeholder,
+     *   mono, multiline, rows, emptyLabel, onEdit, onMode }.
+     * @returns {{ control, action }}: the input element and an optional inline action.
+     */
+    function suggestionControl(options) {
+      const { t, value, suggestions, mode, disabled, ariaLabel, placeholder, mono, multiline, rows, emptyLabel, onEdit, onMode } = options;
+      const list = Array.isArray(suggestions) ? suggestions : [];
+      if (list.length > 0 && mode !== 'text') {
+        const entries = [];
+        const seenValues = new Set();
+        const push = (entry) => {
+          if (seenValues.has(entry.value)) return;
+          seenValues.add(entry.value);
+          entries.push(entry);
+        };
+        if (emptyLabel !== undefined) push({ value: '', label: emptyLabel });
+        if (value !== '' && !list.some((option) => option.value === value)) push({ value, label: value });
+        for (const option of list) push(option);
+        return {
+          control: h('select', {
+            'aria-label': ariaLabel,
+            disabled,
+            style: styles.select,
+            value,
+            onChange: (event) => {
+              const next = event.target.value;
+              if (next === '__custom__') {
+                onMode('text');
+                return;
+              }
+              onMode(undefined);
+              onEdit(next);
+            },
+          },
+            ...entries.map((entry) => h('option', { key: entry.value, value: entry.value }, entry.label)),
+            h('option', { key: '__custom__', value: '__custom__' }, t('customOption'))),
+          action: null,
+        };
+      }
+      const controlStyle = multiline === true
+        ? styles.textarea
+        : mono === true
+          ? { ...styles.input, fontFamily: MONO }
+          : styles.input;
+      const common = {
+        'aria-label': ariaLabel,
+        disabled,
+        placeholder,
+        spellCheck: false,
+        style: controlStyle,
+        value,
+        onChange: (event) => onEdit(event.target.value),
+      };
+      const control = multiline === true
+        ? h('textarea', { ...common, rows: rows === undefined ? 2 : rows })
+        : h('input', { ...common, type: 'text' });
+      const action = list.length > 0 && mode !== 'list'
+        ? h('button', {
+          type: 'button',
+          onClick: () => onMode('list'),
+          style: styles.linkButton,
+        }, t('useList'))
+        : null;
+      return { control, action };
+    }
+
+    /**
      * Read one string leaf out of the settings value.
      * @param value - the namespace value, possibly missing.
      * @param path - dotted settings path, e.g. `roles.architect.model`.
@@ -391,22 +726,35 @@ window.__ModuleLoader__.load({
 
     /**
      * Render a bundle's configuration page: one row per crew role, staged edits,
-     * and an explicit save/discard action pair.
-     * @param props - { view, t, form }: requested view, locale reader, shared configuration form.
+     * an explicit save/discard action pair, and a custom-roles editor.
+     * @param props - { view, t, form, catalog, customRoles }: requested view, locale
+     *   reader, shared configuration form, catalog store, custom-roles store.
      * @returns the page content.
      */
     function ConfigPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key;
       const form = props.form;
       const catalog = props.catalog;
+      const customRoles = props.customRoles;
       const snapshot = useControllerSnapshot(form);
       const catalogState = useControllerSnapshot(catalog);
+      const rolesState = useControllerSnapshot(customRoles);
       React.useEffect(() => {
         if (catalog !== undefined && catalog !== null && typeof catalog.load === 'function') catalog.load();
       }, [catalog]);
+      React.useEffect(() => {
+        if (customRoles !== undefined && customRoles !== null && typeof customRoles.load === 'function') customRoles.load();
+      }, [customRoles]);
       const [draft, setDraft] = React.useState({});
       const [modes, setModes] = React.useState({});
       const [status, setStatus] = React.useState('idle');
+      const [roleDraft, setRoleDraft] = React.useState(null);
+      const [roleModes, setRoleModes] = React.useState({});
+      const [roleStatus, setRoleStatus] = React.useState('idle');
+      const [roleMessage, setRoleMessage] = React.useState('');
+      React.useEffect(() => {
+        if (rolesState.status === 'ready' && roleDraft === null) setRoleDraft(cloneRoles(rolesState.roles));
+      }, [rolesState, roleDraft]);
       const ready = snapshot.status === 'ready';
       const readOnly = snapshot.writable === false;
       const disabled = !ready || readOnly || status === 'saving';
@@ -518,74 +866,285 @@ window.__ModuleLoader__.load({
           FIELDS.map((field) => {
             const path = 'roles.' + role.id + '.' + field.id;
             const value = valueOf(path);
-            const ariaLabel = t('ariaLabel', { role: roleName, field: t(field.labelKey) });
-            const controlStyle = field.multiline
-              ? styles.textarea
-              : field.mono
-                ? { ...styles.input, fontFamily: MONO }
-                : styles.input;
-            const common = {
-              'aria-label': ariaLabel,
-              disabled,
-              placeholder: t(field.placeholderKey),
-              spellCheck: false,
-              style: controlStyle,
+            const suggestions = suggestionsFor(field.id, catalogState, providerId, modelId);
+            const emptyLabel = field.id === 'reasoningEffort'
+              ? t('placeholderEffort')
+              : value === ''
+                ? t(field.placeholderKey)
+                : undefined;
+            const rendered = suggestionControl({
+              t,
               value,
-              onChange: (event) => edit(path, event.target.value),
-            };
-            const suggestions = field.id === 'persona'
-              ? []
-              : suggestionsFor(field.id, catalogState, providerId, modelId);
-            const mode = modes[path];
-            const knownValue = value === '' || suggestions.some((option) => option.value === value);
-            const selectable = suggestions.length > 0 && mode !== 'text' && (knownValue || mode === 'list');
-            let control;
-            let action = null;
-            if (selectable) {
-              const options = field.id === 'reasoningEffort'
-                ? [{ value: '', label: t('placeholderEffort') }]
-                : value === ''
-                  ? [{ value: '', label: t(field.placeholderKey) }]
-                  : [];
-              if (value !== '' && !suggestions.some((option) => option.value === value)) {
-                options.push({ value, label: value });
-              }
-              options.push(...suggestions);
-              control = h('select', {
-                'aria-label': ariaLabel,
-                disabled,
-                style: styles.select,
-                value,
-                onChange: (event) => {
-                  const next = event.target.value;
-                  if (next === '__custom__') {
-                    setMode(path, 'text');
-                    return;
-                  }
-                  setMode(path, undefined);
-                  edit(path, next);
-                },
-              },
-                ...options.map((option) => h('option', { key: option.value, value: option.value }, option.label)),
-                h('option', { key: '__custom__', value: '__custom__' }, t('customOption')));
-            } else if (field.multiline) {
-              control = h('textarea', { ...common, rows: 2 });
-            } else {
-              control = h('input', { ...common, type: 'text' });
-            }
-            if (suggestions.length > 0 && !selectable && mode !== 'list') {
-              action = h('button', {
-                type: 'button',
-                onClick: () => setMode(path, 'list'),
-                style: styles.linkButton,
-              }, t('useList'));
-            }
+              suggestions,
+              mode: modes[path],
+              disabled,
+              ariaLabel: t('ariaLabel', { role: roleName, field: t(field.labelKey) }),
+              placeholder: t(field.placeholderKey),
+              mono: field.mono === true,
+              multiline: field.multiline === true,
+              emptyLabel,
+              onEdit: (text) => edit(path, text),
+              onMode: (nextMode) => setMode(path, nextMode),
+            });
             return h('td', {
               key: field.id,
               style: field.wide ? { ...styles.cell, minWidth: 220 } : styles.cell,
-            }, control, action);
+            }, rendered.control, rendered.action);
           }));
       }));
+
+      /** The custom-roles editor content for the current load state. */
+      let customRolesContent;
+      const rolesReady = rolesState.status === 'ready';
+      const rolesBusy = roleStatus === 'saving';
+      const roleRows = Array.isArray(roleDraft) ? roleDraft : [];
+
+      const editRole = (index, fieldId, text) => {
+        setRoleDraft((previous) => {
+          if (!Array.isArray(previous)) return previous;
+          return previous.map((role, position) => (position === index ? { ...role, [fieldId]: text } : role));
+        });
+        setRoleStatus('idle');
+        setRoleMessage('');
+      };
+
+      const setRoleMode = (index, fieldId, mode) => {
+        setRoleModes((previous) => ({ ...previous, [String(index) + ':' + fieldId]: mode }));
+      };
+
+      const addRole = () => {
+        const rows = Array.isArray(roleDraft) ? roleDraft : [];
+        const used = new Set(rows.map((role) => String(role.id ?? '').trim()));
+        let counter = 1;
+        while (used.has('custom' + String(counter))) counter += 1;
+        const firstGroup = Array.isArray(catalogState.groups) && catalogState.groups.length > 0
+          ? catalogState.groups[0]
+          : undefined;
+        let provider = firstGroup !== undefined ? stringOf(firstGroup.id) : '';
+        if (provider === '') provider = readLeaf(snapshot.value, 'roles.explore.provider');
+        const group = groupOf(catalogState, provider);
+        const model = group !== undefined && Array.isArray(group.models) && group.models.length > 0
+          ? stringOf(group.models[0].id)
+          : '';
+        setRoleDraft([...rows, { id: 'custom' + String(counter), name: '', provider, model, reasoningEffort: '', persona: '' }]);
+        setRoleModes({});
+        setRoleStatus('idle');
+        setRoleMessage('');
+      };
+
+      const removeRole = (index) => {
+        setRoleDraft((previous) => (
+          Array.isArray(previous) ? previous.filter((role, position) => position !== index) : previous
+        ));
+        setRoleModes({});
+        setRoleStatus('idle');
+        setRoleMessage('');
+      };
+
+      const saveRoles = async () => {
+        if (rolesBusy || !Array.isArray(roleDraft)) return;
+        const roles = roleDraft.map(normalizeRole);
+        const limits = normalizeLimits(rolesState.limits);
+        const problem = validateRoleDraft(roles, limits, t);
+        if (problem !== null) {
+          setRoleStatus('validation');
+          setRoleMessage(problem);
+          return;
+        }
+        setRoleStatus('saving');
+        setRoleMessage('');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        let response;
+        let payload;
+        let failed = false;
+        try {
+          response = await fetch(ROLES_PATH, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { accept: 'application/json', 'content-type': 'application/json' },
+            body: JSON.stringify({ roles }),
+            signal: controller.signal,
+          });
+          try {
+            payload = await response.json();
+          } catch {
+            payload = undefined;
+          }
+        } catch {
+          failed = true;
+        } finally {
+          clearTimeout(timer);
+        }
+        if (failed !== true && response !== undefined) {
+          if (response.ok) {
+            const accepted = payload !== null && payload !== undefined && Array.isArray(payload.roles)
+              ? normalizeRoles(payload.roles)
+              : cloneRoles(roles);
+            setRoleDraft(accepted);
+            setRoleModes({});
+            setRoleStatus('saved');
+            return;
+          }
+          if (response.status === 400) {
+            const message = payload !== null && payload !== undefined && typeof payload.error === 'string'
+              ? payload.error
+              : 'HTTP 400';
+            setRoleStatus('rejected');
+            setRoleMessage(message);
+            return;
+          }
+        }
+        const confirmed = await confirmRolesSaved(roles);
+        if (confirmed) {
+          setRoleDraft(cloneRoles(roles));
+          setRoleModes({});
+          setRoleStatus('saved');
+          return;
+        }
+        setRoleStatus('error');
+        setRoleMessage('');
+      };
+
+      let roleStatusText = '';
+      let roleStatusColor = COLORS.secondary;
+      if (roleStatus === 'saving') {
+        roleStatusText = t('saving');
+      } else if (roleStatus === 'saved') {
+        roleStatusText = t('customRolesSaved');
+        roleStatusColor = COLORS.success;
+      } else if (roleStatus === 'validation') {
+        roleStatusText = t('customRolesValidation', { message: roleMessage });
+        roleStatusColor = COLORS.error;
+      } else if (roleStatus === 'rejected') {
+        roleStatusText = t('customRolesRejected', { message: roleMessage });
+        roleStatusColor = COLORS.error;
+      } else if (roleStatus === 'error') {
+        roleStatusText = t('customRolesSaveError');
+        roleStatusColor = COLORS.error;
+      }
+
+      const customRoleActions = h('div', { style: styles.actions },
+        h('button', {
+          type: 'button',
+          onClick: addRole,
+          disabled: rolesBusy,
+          style: rolesBusy
+            ? { ...styles.resetButton, opacity: 0.55, cursor: 'not-allowed' }
+            : styles.resetButton,
+        }, t('addRole')),
+        h('button', {
+          type: 'button',
+          onClick: saveRoles,
+          disabled: rolesBusy,
+          style: rolesBusy
+            ? { ...styles.saveButton, opacity: 0.55, cursor: 'not-allowed' }
+            : styles.saveButton,
+        }, rolesBusy ? t('saving') : t('saveCustomRoles')),
+        h('span', { role: 'status', style: { ...styles.status, color: roleStatusColor } }, roleStatusText));
+
+      if (rolesState.status === 'error') {
+        const message = rolesState.timedOut === true
+          ? t('customRolesLoadTimeout')
+          : t('customRolesLoadError', { message: rolesState.error ?? '' });
+        customRolesContent = h('p', { style: styles.notice },
+          message,
+          ' ',
+          h('button', {
+            type: 'button',
+            onClick: () => customRoles.load(true),
+            style: styles.linkButton,
+          }, t('retry')));
+      } else if (!rolesReady || roleDraft === null) {
+        customRolesContent = h('p', { style: styles.hint }, t('customRolesLoading'));
+      } else {
+        const customHeader = h('thead', null, h('tr', null,
+          h('th', { scope: 'col', style: styles.th }, t('roleId')),
+          h('th', { scope: 'col', style: styles.th }, t('roleName')),
+          CUSTOM_FIELDS.map((field) => h('th', { key: field.id, scope: 'col', style: styles.th }, t(field.labelKey))),
+          h('th', { scope: 'col', style: styles.th }, t('fieldPersona')),
+          h('th', { scope: 'col', style: styles.th }, t('removeRole'))));
+        const customBody = h('tbody', null, roleRows.map((role, index) => {
+          const rowLabel = role.name !== ''
+            ? role.name
+            : role.id !== ''
+              ? role.id
+              : t('roleRow', { row: String(index + 1) });
+          const providerId = role.provider.trim();
+          const modelId = role.model.trim();
+          const fieldCells = CUSTOM_FIELDS.map((field) => {
+            const fieldValue = stringOf(role[field.id]);
+            const emptyLabel = field.id === 'reasoningEffort'
+              ? t('placeholderEffort')
+              : fieldValue === ''
+                ? t(field.placeholderKey)
+                : undefined;
+            const rendered = suggestionControl({
+              t,
+              value: fieldValue,
+              suggestions: suggestionsFor(field.id, catalogState, providerId, modelId),
+              mode: roleModes[String(index) + ':' + field.id],
+              disabled: rolesBusy,
+              ariaLabel: t('ariaLabel', { role: rowLabel, field: t(field.labelKey) }),
+              placeholder: t(field.placeholderKey),
+              mono: field.mono === true,
+              multiline: false,
+              emptyLabel,
+              onEdit: (text) => editRole(index, field.id, text),
+              onMode: (nextMode) => setRoleMode(index, field.id, nextMode),
+            });
+            return h('td', { key: field.id, style: styles.cell }, rendered.control, rendered.action);
+          });
+          return h('tr', { key: String(index) },
+            h('td', { style: styles.cell },
+              h('input', {
+                'aria-label': t('ariaLabel', { role: rowLabel, field: t('roleId') }),
+                disabled: rolesBusy,
+                placeholder: t('placeholderRoleId'),
+                spellCheck: false,
+                style: { ...styles.input, minWidth: 80, fontFamily: MONO },
+                type: 'text',
+                value: role.id,
+                onChange: (event) => editRole(index, 'id', event.target.value),
+              })),
+            h('td', { style: styles.cell },
+              h('input', {
+                'aria-label': t('ariaLabel', { role: rowLabel, field: t('roleName') }),
+                disabled: rolesBusy,
+                placeholder: '',
+                spellCheck: false,
+                style: { ...styles.input, minWidth: 120 },
+                type: 'text',
+                value: role.name,
+                onChange: (event) => editRole(index, 'name', event.target.value),
+              })),
+            ...fieldCells,
+            h('td', { style: { ...styles.cell, minWidth: 200 } },
+              h('textarea', {
+                'aria-label': t('ariaLabel', { role: rowLabel, field: t('fieldPersona') }),
+                disabled: rolesBusy,
+                placeholder: t('placeholderPersona'),
+                rows: 2,
+                spellCheck: false,
+                style: styles.textarea,
+                value: role.persona,
+                onChange: (event) => editRole(index, 'persona', event.target.value),
+              })),
+            h('td', { style: styles.cell },
+              h('button', {
+                'aria-label': t('ariaLabel', { role: rowLabel, field: t('removeRole') }),
+                type: 'button',
+                onClick: () => removeRole(index),
+                disabled: rolesBusy,
+                style: styles.linkButton,
+              }, t('removeRole'))));
+        }));
+        customRolesContent = h('div', { style: styles.tableWrap },
+          h('table', { style: styles.table }, customHeader, customBody));
+        if (roleRows.length === 0) {
+          customRolesContent = h('p', { style: styles.hint }, t('customRolesEmpty'));
+        }
+      }
 
       return h('section', { style: styles.section },
         h('h3', { style: styles.title }, t('title')),
@@ -596,6 +1155,11 @@ window.__ModuleLoader__.load({
         h('div', { style: styles.tableWrap }, h('table', { style: styles.table }, header, body)),
         catalogNote,
         h('p', { style: styles.hint }, t('effortHint')),
+        h('hr', { style: styles.divider }),
+        h('h4', { style: styles.subTitle }, t('customRolesTitle')),
+        h('p', { style: styles.hint }, t('customRolesHint')),
+        customRolesContent,
+        customRoleActions,
         h('div', { style: styles.actions },
           h('button', {
             type: 'button',
@@ -619,12 +1183,13 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         const form = ctx.configForms.get('crew-config');
         const catalog = createCatalogStore();
+        const customRoles = createRolesStore();
         ctx.effect(() => ctx.locale.register(NS, { en, zh }));
         ctx.effect(() => ctx.configForms.whileServed(['crew-config'], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
           name: 'plugins.bundle.config',
           key: '@agent-flow/dsh-crew',
           locale: NS,
-          inject: () => ({ form, catalog }),
+          inject: () => ({ form, catalog, customRoles }),
         }, ConfigPage))));
       },
     };

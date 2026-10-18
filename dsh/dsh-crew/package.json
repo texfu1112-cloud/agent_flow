@@ -1,6 +1,6 @@
 {
   "name": "@agent-flow/dsh-crew",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Configurable multi-model Crew roles for DeepSeek Harness: live provider/model/persona settings for read-only exploration, architecture, planning, and review delegation.",
   "license": "MIT",
   "type": "module",

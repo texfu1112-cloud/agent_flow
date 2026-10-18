@@ -27,6 +27,7 @@ Written against DSH `0.2.1-rc.2`.
 | `crew-architect` | Agent preset (child-only) | Same read-only boundary, used for one bounded decision |
 | `crew-planner` | Agent preset (child-only) | Same read-only boundary, used for an implementation plan |
 | `crew-reviewer` | Agent preset (child-only) | Same read-only boundary, used for a bounded-diff review |
+| `crew-role` | Agent preset (child-only) | Shared read-only boundary for user-defined roles |
 | `crew` | Agent preset (selectable) | Mirrors the shipped `standard` tool set and adds Crew delegation guidance |
 
 The four role presets deliberately contain **no persona row**: identity and model
@@ -66,7 +67,7 @@ route-owned effort; keep the same route to inherit the parent's effort.
      `pnpm install` in it first (see *Linked / local development installs* below);
      DSH records it as a `link:` dependency
    - Git: `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
-   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.2.3.tgz` file
+   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.2.4.tgz` file
    - npm: `@agent-flow/dsh-crew` (if published; see *Sharing* below)
 3. **Enable** the bundle when installation finishes.
 
@@ -109,8 +110,8 @@ dependency). Checklist for sharing this repo:
    - Git (recommended when the recipient has no copy):
      `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
    - Tarball: `cd dsh/dsh-crew && pnpm pack`, then send
-     `agent-flow-dsh-crew-0.2.3.tgz` and have the recipient paste its absolute path
-     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.3.tgz`).
+     `agent-flow-dsh-crew-0.2.4.tgz` and have the recipient paste its absolute path
+     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.4.tgz`).
 4. **npm (optional):** `@agent-flow` is a placeholder scope. To publish under your
    own scope, change `name` in `dsh/dsh-crew/package.json` **and** the two package
    name references in `client.js` — the `window.__ModuleLoader__.load({ id: ... })`
@@ -164,6 +165,46 @@ and is picked up by HMR:
 Omitted leaves fall back to the schema defaults. An override replaces the whole
 `config` (Loader patches never deep-merge), so restate every non-default value you
 want to keep.
+
+## User-defined roles
+
+Besides the four built-in roles, the configuration page has a **Custom roles**
+section where you can add, edit, and remove your own roles:
+
+| Field | Meaning |
+|---|---|
+| `id` | Tool suffix; must match `^[a-z][a-z0-9_]{0,31}$` and be unique (the tool becomes `crew_<id>`) |
+| `name` | Display name used in the tool description (defaults to `id`) |
+| `provider`, `model`, `reasoningEffort`, `persona` | Same meaning as the built-in role fields |
+
+Rules and behavior:
+
+- Up to **8** custom roles; ids cannot reuse the built-in role names.
+- Saving writes the complete entry through the configuration editor: `customRoles`
+  is **ordinary** config (not volatile), so the Loader reloads this plugin and the
+  new `crew_<id>` tools exist for the next delegation. The built-in four roles stay
+  volatile and still update without a reload.
+- Every custom-role child mounts the shared read-only `crew-role` preset, so its tool
+  boundary matches the built-in roles. Its persona is injected at the top of the task
+  prompt (one shared preset cannot carry several identities); the model route and
+  depth policy are identical to the built-in roles.
+- The browser editor talks to `GET /agent-flow/dsh-crew/roles` (returns
+  `{ roles, limits }`) and `POST /agent-flow/dsh-crew/roles` (complete role list),
+  both served by this bundle's own Host plugin, so no session-scoped Remote is
+  involved. The same values can be edited by hand in the profile patch:
+
+```yaml
+- id: crew-config
+  name: "@agent-flow/dsh-crew"
+  config:
+    customRoles:
+      - id: debugger
+        name: Debugger
+        provider: deepseek-account
+        model: deepseek-flash
+        reasoningEffort: high
+        persona: "You are Debugger. Reproduce the failure, isolate the cause, and report the smallest fix."
+```
 
 ## Model routes
 
@@ -266,7 +307,7 @@ cold resume fails if the preset id no longer exists, so switch those sessions ba
 Run these after editing the bundle:
 
 ```sh
-# Patch structure: one insert block, 5 presets + the crew-config row,
+# Patch structure: one insert block, 6 presets + the crew-config row,
 # no write-capable tool in role presets.
 ruby -ryaml -e '
   raw = File.read("dsh/dsh-crew/cordis.patch.yml").gsub(/!!js .*$/, "false")
@@ -274,10 +315,10 @@ ruby -ryaml -e '
   raise "expected one insert entry" unless doc.is_a?(Array) && doc.size == 1 && doc[0]["insert"]
   rows = doc[0]["insert"]
   presets = rows.select { |r| r["name"] == "@deepseek-ai/dsh-agent-preset" }
-  raise "expected 5 presets, got #{presets.size}" unless presets.size == 5
+  raise "expected 6 presets, got #{presets.size}" unless presets.size == 6
   raise "missing crew-config row" unless rows.any? { |r| r["id"] == "crew-config" && r["name"] == "@agent-flow/dsh-crew" }
   role_ids = presets.map { |r| r["config"]["id"] }.sort
-  raise "unexpected presets: #{role_ids}" unless role_ids == %w[crew crew-architect crew-explore crew-planner crew-reviewer]
+  raise "unexpected presets: #{role_ids}" unless role_ids == %w[crew crew-architect crew-explore crew-planner crew-reviewer crew-role]
   puts "ok: #{presets.size} presets + crew-config"
 '
 python3 -c 'import json,sys; [json.load(open(p)) for p in sys.argv[1:]]; print("ok: json")' \

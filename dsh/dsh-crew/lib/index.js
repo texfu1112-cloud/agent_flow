@@ -37,6 +37,21 @@ const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix';
 /** HTTP path the browser half uses to read the model catalog (same origin). */
 const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
 
+/** HTTP path the browser half uses to read/write user-defined roles. */
+const ROLES_PATH = '/agent-flow/dsh-crew/roles';
+
+/** Read-only Agent Preset mounted by every user-defined role child. */
+const CUSTOM_ROLE_PRESET = 'crew-role';
+
+/** Upper bound on user-defined roles (each adds one global tool). */
+const MAX_CUSTOM_ROLES = 8;
+
+/** Accepted user-defined role id; it becomes the `crew_<id>` tool suffix. */
+const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** Limits reported to the browser editor. */
+const CUSTOM_ROLE_LIMITS = { maxRoles: MAX_CUSTOM_ROLES, idPattern: ROLE_ID_PATTERN.source };
+
 /** Catalog cache lifetime; provider/model discovery is comparatively expensive. */
 const CATALOG_TTL_MS = 30_000;
 
@@ -103,7 +118,7 @@ async function buildCatalog(llm) {
 export const ROLE_NAMES = ['explore', 'architect', 'planner', 'reviewer'];
 
 /** HTTP path of the browser-facing model catalog route. */
-export { CATALOG_PATH };
+export { CATALOG_PATH, ROLES_PATH };
 
 /**
  * Per-role facts: the model-facing tool, the child preset that supplies the
@@ -203,9 +218,26 @@ function roleSchema(defaults) {
 }
 
 /**
+ * Schema of one user-defined role. These fields are ordinary (not volatile):
+ * adding or editing a role changes the registered tool set, so the Loader
+ * reloads this plugin and the next delegation uses the new definitions. The
+ * four built-in roles stay volatile because editing their routes/persona must
+ * not remount the tools.
+ */
+const customRoleSchema = z.object({
+  id: z.string().required(),
+  name: z.string().default(''),
+  provider: z.string().required(),
+  model: z.string().required(),
+  reasoningEffort: z.string().default(''),
+  persona: z.string().default(''),
+});
+
+/**
  * Live Crew configuration. The four role objects are addressed by the
  * settings GUI as `roles.<role>.<field>` paths; every leaf is volatile so a
- * save applies without remounting this plugin.
+ * save applies without remounting this plugin. `customRoles` is ordinary
+ * config written by the bundle's own `/agent-flow/dsh-crew/roles` route.
  */
 export const Config = z
   .object({
@@ -217,6 +249,7 @@ export const Config = z
         reviewer: roleSchema(ROLE_DEFAULTS.reviewer),
       })
       .default({}),
+    customRoles: z.array(customRoleSchema).default([]),
   })
   .default({});
 
@@ -247,6 +280,125 @@ function readRole(config, role) {
     reasoningEffort: readString(roleConfig?.reasoningEffort),
     persona: readString(roleConfig?.persona),
   };
+}
+
+/**
+ * Normalize one user-defined role from parsed config or a request body.
+ * @param {unknown} raw - candidate role object.
+ * @returns {object | undefined} the normalized role, or undefined when invalid.
+ */
+function normalizeCustomRole(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const provider = typeof raw.provider === 'string' ? raw.provider.trim() : '';
+  const model = typeof raw.model === 'string' ? raw.model.trim() : '';
+  if (!ROLE_ID_PATTERN.test(id) || provider.length === 0 || model.length === 0) return undefined;
+  return {
+    id,
+    name: typeof raw.name === 'string' ? raw.name.trim() : '',
+    provider,
+    model,
+    reasoningEffort: typeof raw.reasoningEffort === 'string' ? raw.reasoningEffort.trim() : '',
+    persona: typeof raw.persona === 'string' ? raw.persona.trim() : '',
+  };
+}
+
+/**
+ * Read the valid user-defined roles from the live config, de-duplicated and
+ * bounded. Invalid hand-written entries are skipped with a warning.
+ * @param {object} config - parsed plugin Config.
+ * @param {object} logger - plugin logger.
+ * @returns {Array<object>} normalized roles.
+ */
+function customRolesOf(config, logger) {
+  const list = Array.isArray(config?.customRoles) ? config.customRoles : [];
+  const seen = new Set(ROLE_NAMES);
+  const roles = [];
+  for (const entry of list) {
+    const role = normalizeCustomRole(entry);
+    if (role === undefined) {
+      logger?.warn('crew-config: skipping an invalid custom role (id must match %s; provider/model required)', ROLE_ID_PATTERN.source);
+      continue;
+    }
+    if (seen.has(role.id)) {
+      logger?.warn('crew-config: skipping duplicate custom role "%s"', role.id);
+      continue;
+    }
+    seen.add(role.id);
+    roles.push(role);
+    if (roles.length >= MAX_CUSTOM_ROLES) break;
+  }
+  return roles;
+}
+
+/**
+ * Validate a complete user-defined role list submitted by the browser editor.
+ * @param {unknown} input - candidate list.
+ * @returns {{ roles?: Array<object>, error?: string }} the accepted list or a message.
+ */
+function validateCustomRoles(input) {
+  if (!Array.isArray(input)) return { error: 'roles must be an array' };
+  if (input.length > MAX_CUSTOM_ROLES) return { error: `at most ${MAX_CUSTOM_ROLES} custom roles are supported` };
+  const seen = new Set(ROLE_NAMES);
+  const roles = [];
+  for (const [index, raw] of input.entries()) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { error: `role ${index + 1}: expected an object` };
+    }
+    const role = normalizeCustomRole(raw);
+    if (role === undefined) {
+      return { error: `role ${index + 1}: "id" must match ${ROLE_ID_PATTERN.source} and provider/model must be non-empty` };
+    }
+    if (seen.has(role.id)) return { error: `role id "${role.id}" is already used` };
+    const fields = [['name', 64], ['provider', 200], ['model', 200], ['reasoningEffort', 32], ['persona', 4000]];
+    for (const [field, max] of fields) {
+      if (role[field].length > max) return { error: `role "${role.id}": ${field} exceeds ${max} characters` };
+    }
+    seen.add(role.id);
+    roles.push(role);
+  }
+  return { roles };
+}
+
+/**
+ * Read the four built-in role values as plain JSON (used when pinning the
+ * complete config through the configuration editor).
+ * @param {object} config - parsed plugin Config.
+ */
+function plainRoles(config) {
+  const roles = {};
+  for (const role of ROLE_NAMES) roles[role] = readRole(config, role);
+  return roles;
+}
+
+/**
+ * Buffer and parse one small JSON request body.
+ * @param {object} req - Node request stream.
+ * @param {number} limit - maximum accepted bytes.
+ * @returns {Promise<any>} the parsed JSON value.
+ */
+function readJsonBody(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(chunks.length === 0 ? {} : JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (_error) {
+        reject(new Error('request body must be JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 /**
@@ -416,6 +568,99 @@ function defineRoleTool(ctx, config, role) {
 }
 
 /**
+ * Build the model-facing tool for one user-defined role. Unlike the four
+ * built-in roles (whose preset carries no persona and whose persona is applied
+ * per child), a user-defined role mounts the shared read-only `crew-role`
+ * preset and carries its identity in the task preamble, because one preset id
+ * cannot distinguish several custom roles.
+ * @param {object} ctx - plugin context.
+ * @param {object} role - normalized custom role.
+ */
+function defineCustomRoleTool(ctx, role) {
+  const toolName = `crew_${role.id}`;
+  const display = role.name.length > 0 ? role.name : role.id;
+  return {
+    name: toolName,
+    description:
+      `Delegate one bounded task to the "${display}" Crew role (user-defined in the Crew configuration). ` +
+      `The child runs under the "${CUSTOM_ROLE_PRESET}" Agent Preset, which mounts only read-only tools, ` +
+      `and it uses the role's configured provider, model, reasoning effort, and persona. ` +
+      `This tool starts an independently managed child and immediately returns its id; ` +
+      `the runtime notifies you when it finishes. Do not delegate writing, editing, or verification commands.`,
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        description: {
+          type: 'string',
+          description: 'A short (3-5 word) description of the delegated task, for display.',
+        },
+        prompt: {
+          type: 'string',
+          description:
+            'The complete, self-contained task for the child. It does not share this conversation, ' +
+            'so include every fact, question, and constraint it needs.',
+        },
+        cwd: {
+          type: 'string',
+          description:
+            'Optional initial child working directory. Relative paths resolve against your current ' +
+            'directory; omission inherits it.',
+        },
+      },
+      required: ['description', 'prompt'],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', const: 'activation' },
+          subagentId: { type: 'string' },
+        },
+        required: ['kind', 'subagentId'],
+      },
+      render(_args, value) {
+        return [{ type: 'text', text: `started subagent ${value.subagentId}` }];
+      },
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const parent = exec.agent;
+      if (parent === undefined) throw new Error(`crew: ${toolName} requires a calling agent`);
+      const description = requireText(args?.description, 'description');
+      const prompt = requireText(args?.prompt, 'prompt');
+      if (args?.cwd !== undefined && (typeof args.cwd !== 'string' || args.cwd.length === 0)) {
+        throw new Error('crew: "cwd" must be a non-empty string when supplied');
+      }
+      const agentOptions = {
+        provider: role.provider,
+        model: role.model,
+        ...(role.reasoningEffort.length > 0 ? { reasoningEffort: role.reasoningEffort } : {}),
+      };
+      const text = role.persona.length > 0 ? `${role.persona}\n\n${prompt}` : prompt;
+      const started = await ctx.subagents.startActivation({
+        provider: 'spawn',
+        label: description,
+        delivery: 'parent',
+        signal: exec.signal,
+        request: {
+          prompt: [{ type: 'text', text }],
+          parent,
+          agentPreset: CUSTOM_ROLE_PRESET,
+          agentOptions,
+          persona: role.persona,
+          toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
+          maxDepth: childMaxDepth(parent),
+          ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+        },
+      });
+      return { kind: 'activation', subagentId: started.childId };
+    },
+  };
+}
+
+/**
  * Install the Crew Host contribution.
  * @param {object} ctx - plugin context.
  * @param {object} config - parsed plugin Config.
@@ -474,12 +719,66 @@ export function apply(ctx, config) {
     }), 'crew-config: model catalog route');
   });
 
+  // Browser-side editor for user-defined roles. These are ordinary config (not
+  // volatile), so a save rewrites the complete entry through the configuration
+  // editor and the Loader reloads this plugin with the new tool set.
+  ctx.inject(['configEditor', 'webServer'], (child) => {
+    child.effect(() => child.webServer.register({
+      kind: 'exact',
+      path: ROLES_PATH,
+      handler: (req, res) => {
+        const send = (status, body) => {
+          const text = JSON.stringify(body);
+          res.writeHead(status, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'content-length': Buffer.byteLength(text),
+          });
+          res.end(text);
+        };
+        if (req.method === 'GET') {
+          send(200, { roles: customRolesOf(config, ctx.logger), limits: CUSTOM_ROLE_LIMITS });
+          return;
+        }
+        if (req.method !== 'POST') {
+          send(405, { ok: false, error: 'method-not-allowed' });
+          return;
+        }
+        readJsonBody(req)
+          .then((body) => {
+            const validated = validateCustomRoles(body === null || typeof body !== 'object' ? undefined : body.roles);
+            if (validated.error !== undefined) {
+              send(400, { ok: false, error: validated.error });
+              return undefined;
+            }
+            const entry = child.configEditor.entries().find((row) => row.options.id === 'crew-config');
+            if (entry === undefined) throw new Error('the crew-config entry is not addressable in this profile');
+            return child.configEditor
+              .edit(entry, () => ({ roles: plainRoles(config), customRoles: validated.roles }))
+              .then(() => send(200, { ok: true, roles: validated.roles }));
+          })
+          .catch((error) => send(500, { ok: false, error: error instanceof Error ? error.message : String(error) }));
+      },
+    }), 'crew-config: custom roles route');
+  });
+
   for (const role of ROLE_NAMES) {
     ctx.effect(
       () => ctx.tools.register(defineRoleTool(ctx, config, role)),
       `crew-config: ${ROLE_INFO[role].tool}`,
     );
   }
+
+  const customRoles = customRolesOf(config, ctx.logger);
+  for (const role of customRoles) {
+    ctx.effect(
+      () => ctx.tools.register(defineCustomRoleTool(ctx, role)),
+      `crew-config: crew_${role.id}`,
+    );
+  }
+  // A Crew child must not see any Crew delegation tool, including the dynamic
+  // ones registered from the current custom-role list.
+  const crewToolDenyList = [...CREW_TOOL_NAMES, ...customRoles.map((role) => `crew_${role.id}`)];
 
   // Apply the saved persona and hide the Crew delegation tools inside a Crew
   // child. The four role presets own the read-only tool boundary; this adds
@@ -491,13 +790,18 @@ export function apply(ctx, config) {
     // contained and only logged. A missed persona or deny list must not break
     // the delegation itself.
     let role;
+    let preset;
     try {
+      preset = agent?.session?.header?.agentPreset;
       role = roleOfAgent(agent);
     } catch (error) {
       ctx.logger.warn(`crew-config: could not resolve the created child's role: ${String(error)}`);
       return;
     }
-    if (role === undefined) return;
+    // User-defined roles share one read-only preset and carry their identity in
+    // the task preamble; only the built-in roles get a scoped system persona.
+    const crewChild = role !== undefined || preset === CUSTOM_ROLE_PRESET;
+    if (!crewChild) return;
     try {
       const current = readRole(config, role);
       if (current.persona.length > 0) {
@@ -513,7 +817,7 @@ export function apply(ctx, config) {
       ctx.logger.warn(`crew-config: could not apply the ${role} child's persona: ${String(error)}`);
     }
     try {
-      agent.ctx.tools.restrict({ deny: CREW_TOOL_NAMES });
+      agent.ctx.tools.restrict({ deny: crewToolDenyList });
     } catch (error) {
       // A denylist naming a tool this composition does not register is not
       // fatal; the child still cannot delegate because its role preset mounts
@@ -525,7 +829,8 @@ export function apply(ctx, config) {
   });
 
   ctx.logger.info(
-    'crew-config: registered %d role tools (explore/architect/planner/reviewer); edit roles in Plugins → Crew',
+    'crew-config: registered %d built-in role tools and %d custom role tool(s); edit roles in Plugins → Crew',
     CREW_TOOL_NAMES.length,
+    customRoles.length,
   );
 }

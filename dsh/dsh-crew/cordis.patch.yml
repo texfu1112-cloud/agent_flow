@@ -184,6 +184,49 @@
                   headChars: 4096
                   tailChars: 1024
 
+    - id: preset-crew-role
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: crew-role
+        name: Crew Role
+        description: Child-only read-only boundary for user-defined Crew roles.
+        order: 34
+        plugins:
+          # Identity/persona, model route, and the role's task preamble come from
+          # crew-config.customRoles; this preset is only the read-only boundary.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 32768
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: false
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
     - id: preset-crew
       name: '@deepseek-ai/dsh-agent-preset'
       config:
