@@ -187,10 +187,10 @@ dsh plugin --profile desktop add 'git+https://github.com/texfu1112-cloud/agent_f
 维护者打包，把 `.tgz` 发给对方：
 
 ```sh
-cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.2.2.tgz
+cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.2.3.tgz
 ```
 
-对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.2.tgz`）。
+对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.3.tgz`）。
 
 **方式 D：发布到 npm（可选）**
 
@@ -203,7 +203,7 @@ cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.2.2.tgz
 任意会话 → crew_explore / crew_architect / crew_planner / crew_reviewer
 ```
 
-表格里的 provider / model / 推理强度是从当前模型目录读取的下拉框（带「自定义…」可切回手输；目录状态在表格下方有提示）。保存只影响下一次委派，无需重启。验证：调用一次 `crew_explore`，用返回的 child id 查看 `~/.dsh/sessions/<cwd转义>/<childId>/session.v4.jsonl.zstd` 中的 `request/header`（模型）与 `system/message`（人格）。卸载：**插件 → Installed plugins → Crew → Remove**，或 `dsh plugin --profile desktop remove @agent-flow/dsh-crew`。
+表格里的 provider / model / 推理强度是下拉框：由 bundle 自带的 Host 路由读取实时模型目录（带「自定义…」可切回手输）；目录读取失败时自动退回内置 DeepSeek 选项，表格下方有状态提示。保存只影响下一次委派，无需重启。验证：调用一次 `crew_explore`，用返回的 child id 查看 `~/.dsh/sessions/<cwd转义>/<childId>/session.v4.jsonl.zstd` 中的 `request/header`（模型）与 `system/message`（人格）。卸载：**插件 → Installed plugins → Crew → Remove**，或 `dsh plugin --profile desktop remove @agent-flow/dsh-crew`。
 
 详细配置、HMR 验证与故障排查见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md)；兼容性与维护检查见 [`dsh/README.md`](dsh/README.md)。
 

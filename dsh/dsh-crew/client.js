@@ -48,6 +48,7 @@ window.__ModuleLoader__.load({
       useList: 'Pick from list',
       catalogError: 'Could not load the model catalog: {message}',
       catalogTimeout: 'Timed out loading the model catalog; type the ids directly or retry.',
+      catalogFallback: 'The live model catalog is unavailable, so built-in DeepSeek options are shown; you can still type custom values.',
       retry: 'Retry',
     };
 
@@ -92,6 +93,7 @@ window.__ModuleLoader__.load({
       useList: '从列表选择',
       catalogError: '模型目录加载失败：{message}',
       catalogTimeout: '模型目录加载超时；可直接手输，或稍后重试。',
+      catalogFallback: '模型目录不可用，已使用内置的 DeepSeek 选项；仍可直接输入自定义值。',
       retry: '重试',
     };
 
@@ -111,80 +113,93 @@ window.__ModuleLoader__.load({
       { id: 'persona', labelKey: 'fieldPersona', placeholderKey: 'placeholderPersona', multiline: true, wide: true },
     ];
 
+    /** HTTP route the Host half serves the live model catalog on (same origin). */
+    const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
+
+    /** Bound for one catalog fetch; the page falls back to built-in options after it. */
+    const CATALOG_TIMEOUT_MS = 8000;
+
+    /** Built-in DeepSeek effort ids used when the live catalog is unavailable. */
+    const FALLBACK_EFFORTS = [
+      { id: 'off', name: 'Off' },
+      { id: 'low', name: 'Low' },
+      { id: 'high', name: 'High' },
+      { id: 'max', name: 'Max' },
+    ];
+
+    /** Built-in provider/model suggestions used when the live catalog is unavailable. */
+    const FALLBACK_GROUPS = [
+      {
+        id: 'deepseek-account',
+        name: 'DeepSeek Account',
+        models: [
+          { id: 'deepseek-flash', name: 'DeepSeek Flash', reasoning: { efforts: FALLBACK_EFFORTS } },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', reasoning: { efforts: FALLBACK_EFFORTS } },
+        ],
+      },
+      {
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [{ id: 'deepseek-flash', name: 'DeepSeek Flash', reasoning: { efforts: FALLBACK_EFFORTS } }],
+      },
+    ];
+
+    /** Models of one built-in provider group. */
+    function fallbackModels(providerId) {
+      const group = FALLBACK_GROUPS.find((entry) => entry.id === providerId);
+      return group === undefined ? [] : group.models;
+    }
+
+    /** Fill providers that answered without models from the built-in map. */
+    function mergeFallback(groups) {
+      if (!Array.isArray(groups) || groups.length === 0) return FALLBACK_GROUPS;
+      return groups.map((group) => {
+        if (Array.isArray(group.models) && group.models.length > 0) return group;
+        return { ...group, models: fallbackModels(group.id) };
+      });
+    }
+
     /**
      * Read-only store for the Host model catalog powering the input suggestions.
-     * The page keeps working as plain text inputs when the catalog cannot be read
-     * (older Host, restricted Remote namespace, transient failure).
-     * @param ctx - client plugin context (optional Remote lookup).
-     * @returns a subscribeable snapshot store with a lazy load().
+     * The catalog comes from this bundle's own Host route, so it does not depend
+     * on session-scoped Client Remote namespaces (unavailable on the root
+     * Plugins page). A failed read falls back to built-in DeepSeek options, so
+     * the table always offers dropdown choices.
      */
-    function createCatalogStore(ctx) {
-      let state = { status: 'idle', groups: [], failures: [], error: null, timedOut: false };
+    function createCatalogStore() {
+      let state = { status: 'idle', groups: [], failures: [], error: null, timedOut: false, fallback: false };
       const listeners = new Set();
       let inflight;
-      /** Bound the model catalog round-trip; the page must never wait forever. */
-      const CATALOG_TIMEOUT_MS = 8000;
-      const withTimeout = (promise, ms) => {
-        let timer;
-        return Promise.race([
-          promise,
-          new Promise((_resolve, reject) => {
-            timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
-          }),
-        ]).finally(() => clearTimeout(timer));
-      };
       const publish = (patch) => {
         state = { ...state, ...patch };
         for (const listener of listeners) listener();
       };
-      const callRemote = async (namespace, method) => {
-        if (namespace === undefined || namespace === null || typeof namespace[method] !== 'function') return undefined;
-        return await namespace[method]();
-      };
-      const read = async (remote) => {
-        // The cheap provider directory runs in parallel: even if the richer
-        // catalog stalls, provider suggestions can still appear.
-        const providersTask = (async () => {
-          try {
-            return await callRemote(remote === undefined ? undefined : remote.llm, 'listProviders');
-          } catch (error) {
-            return undefined;
-          }
-        })();
-        let catalogResult;
-        let timedOut = false;
+      const read = async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), CATALOG_TIMEOUT_MS);
         try {
-          const catalogTask = callRemote(remote === undefined ? undefined : remote.session, 'modelCatalog');
-          catalogResult = catalogTask === undefined ? undefined : await withTimeout(catalogTask, CATALOG_TIMEOUT_MS);
+          const response = await fetch(CATALOG_PATH, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { accept: 'application/json' },
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error('HTTP ' + String(response.status));
+          const payload = await response.json();
+          const groups = mergeFallback(payload.groups);
+          return { groups, failures: [], error: null, timedOut: false, fallback: groups === FALLBACK_GROUPS };
         } catch (error) {
-          timedOut = true;
-          catalogResult = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
-        }
-        if (!timedOut && catalogResult !== undefined && catalogResult !== null && catalogResult.ok === true) {
-          const value = catalogResult.value ?? {};
+          const aborted = error instanceof Error && error.name === 'AbortError';
           return {
-            groups: Array.isArray(value.groups) ? value.groups : [],
-            failures: Array.isArray(value.failures) ? value.failures : [],
-            error: null,
-            timedOut: false,
-          };
-        }
-        const message = catalogResult !== undefined && catalogResult !== null && catalogResult.ok === false
-          ? catalogResult.error && catalogResult.error.message
-          : undefined;
-        const providersResult = await providersTask;
-        const providers = providersResult !== undefined && providersResult !== null && providersResult.ok === true
-          ? providersResult.value
-          : Array.isArray(providersResult) ? providersResult : undefined;
-        if (Array.isArray(providers) && providers.length > 0) {
-          return {
-            groups: providers.map((provider) => ({ id: provider.id, name: provider.name ?? provider.id, models: [] })),
+            groups: FALLBACK_GROUPS,
             failures: [],
-            error: message ?? null,
-            timedOut,
+            error: aborted ? 'timed out' : (error instanceof Error ? error.message : String(error)),
+            timedOut: aborted,
+            fallback: true,
           };
+        } finally {
+          clearTimeout(timer);
         }
-        return { groups: [], failures: [], error: message ?? 'model catalog unavailable', timedOut };
       };
       return {
         getSnapshot: () => state,
@@ -194,16 +209,11 @@ window.__ModuleLoader__.load({
         },
         load: (force = false) => {
           if (inflight !== undefined && force !== true) return inflight;
-          if (force !== true && state.status === 'ready') return Promise.resolve(state);
-          const remote = typeof ctx.get === 'function' ? ctx.get('remote') : undefined;
-          if (remote === undefined || remote === null) {
-            publish({ status: 'unavailable', error: null });
-            return Promise.resolve(state);
-          }
+          if (force !== true && (state.status === 'ready' || state.status === 'error')) return Promise.resolve(state);
           publish({ status: 'loading', error: null });
-          inflight = read(remote)
-            .then(({ groups, failures, error, timedOut }) => {
-              publish({ status: groups.length > 0 ? 'ready' : 'error', groups, failures, error, timedOut: timedOut === true });
+          inflight = read()
+            .then(({ groups, failures, error, timedOut, fallback }) => {
+              publish({ status: 'ready', groups, failures, error, timedOut, fallback });
               return state;
             })
             .finally(() => {
@@ -465,7 +475,16 @@ window.__ModuleLoader__.load({
         modelCount += Array.isArray(group.models) ? group.models.length : 0;
       }
       let catalogNote = null;
-      if (catalogState.status === 'ready') {
+      if (catalogState.status === 'ready' && catalogState.fallback === true) {
+        catalogNote = h('p', { style: styles.hint },
+          t('catalogFallback'),
+          ' ',
+          h('button', {
+            type: 'button',
+            onClick: () => catalog.load(true),
+            style: styles.linkButton,
+          }, t('retry')));
+      } else if (catalogState.status === 'ready') {
         catalogNote = h('p', { style: styles.hint },
           t('catalogHint', { providers: String(providerCount), models: String(modelCount) }));
       } else if (catalogState.status === 'loading' || catalogState.status === 'idle') {
@@ -599,7 +618,7 @@ window.__ModuleLoader__.load({
       inject: ['configForms', 'slots', 'locale'],
       apply(ctx) {
         const form = ctx.configForms.get('crew-config');
-        const catalog = createCatalogStore(ctx);
+        const catalog = createCatalogStore();
         ctx.effect(() => ctx.locale.register(NS, { en, zh }));
         ctx.effect(() => ctx.configForms.whileServed(['crew-config'], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
           name: 'plugins.bundle.config',

@@ -34,8 +34,76 @@ export const inject = ['tools', 'subagents', 'systemPrompt'];
 /** Stable prompt-section name owned by the system prompt registry. */
 const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix';
 
+/** HTTP path the browser half uses to read the model catalog (same origin). */
+const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
+
+/** Catalog cache lifetime; provider/model discovery is comparatively expensive. */
+const CATALOG_TTL_MS = 30_000;
+
+/** Per-provider bound so one slow adapter cannot stall the whole catalog. */
+const PROVIDER_TIMEOUT_MS = 6_000;
+
+/**
+ * Race a promise against a deadline.
+ * @template T
+ * @param {Promise<T>} promise - operation to bound.
+ * @param {number} ms - deadline in milliseconds.
+ * @returns {Promise<T>}
+ */
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Build the provider/model/effort directory the configuration page suggests.
+ * Providers and models come from the live `llm` registry; each provider is
+ * bounded independently so an unresponsive adapter cannot block the rest.
+ * @param {object} llm - host LLM registry service.
+ * @returns {Promise<Array<object>>} provider groups with models and efforts.
+ */
+async function buildCatalog(llm) {
+  const providers = llm.listProviders();
+  const groups = [];
+  for (const provider of providers) {
+    try {
+      const models = await withTimeout(llm.listModels(provider.id), PROVIDER_TIMEOUT_MS);
+      const entries = [];
+      for (const model of models) {
+        let reasoning;
+        try {
+          const resolved = await withTimeout(llm.resolveModelInfo(provider.id, model.id), PROVIDER_TIMEOUT_MS);
+          if (resolved.reasoning !== undefined) {
+            reasoning = {
+              efforts: resolved.reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
+              ...(resolved.reasoning.defaultEffort === undefined
+                ? {}
+                : { defaultEffort: resolved.reasoning.defaultEffort }),
+            };
+          }
+        } catch (_error) {
+          reasoning = undefined;
+        }
+        entries.push({ id: model.id, name: model.name, ...(reasoning === undefined ? {} : { reasoning }) });
+      }
+      groups.push({ id: provider.id, name: provider.name, models: entries });
+    } catch (error) {
+      groups.push({ id: provider.id, name: provider.name, models: [], error: String(error) });
+    }
+  }
+  return groups;
+}
+
 /** Ordered role ids; the order is the GUI table order. */
 export const ROLE_NAMES = ['explore', 'architect', 'planner', 'reviewer'];
+
+/** HTTP path of the browser-facing model catalog route. */
+export { CATALOG_PATH };
 
 /**
  * Per-role facts: the model-facing tool, the child preset that supplies the
@@ -360,6 +428,50 @@ export function apply(ctx, config) {
       () => child.settings.configure({ auto: false }, ctx.fiber),
       'crew-config: settings page',
     );
+  });
+
+  // Browser-side suggestion source: an HTTP route owned by this plugin, so the
+  // configuration page does not depend on the session-scoped client Remote
+  // namespaces (those are unavailable on the root Plugins page).
+  ctx.inject(['llm', 'webServer'], (child) => {
+    let cache;
+    let inflight;
+    const catalog = (force = false) => {
+      const now = Date.now();
+      if (!force && cache !== undefined && now - cache.at < CATALOG_TTL_MS) return Promise.resolve(cache.groups);
+      if (inflight !== undefined) return inflight;
+      inflight = buildCatalog(child.llm)
+        .then((groups) => {
+          cache = { at: Date.now(), groups };
+          return groups;
+        })
+        .finally(() => {
+          inflight = undefined;
+        });
+      return inflight;
+    };
+    child.effect(() => child.webServer.register({
+      kind: 'exact',
+      path: CATALOG_PATH,
+      handler: (req, res) => {
+        const send = (status, body) => {
+          const text = JSON.stringify(body);
+          res.writeHead(status, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'content-length': Buffer.byteLength(text),
+          });
+          res.end(text);
+        };
+        if (req.method !== 'GET') {
+          send(405, { error: 'method-not-allowed' });
+          return;
+        }
+        catalog(req.url !== undefined && req.url.includes('refresh=1'))
+          .then((groups) => send(200, { groups }))
+          .catch((error) => send(500, { error: error instanceof Error ? error.message : String(error) }));
+      },
+    }), 'crew-config: model catalog route');
   });
 
   for (const role of ROLE_NAMES) {

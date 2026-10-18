@@ -66,7 +66,7 @@ route-owned effort; keep the same route to inherit the parent's effort.
      `pnpm install` in it first (see *Linked / local development installs* below);
      DSH records it as a `link:` dependency
    - Git: `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
-   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.2.2.tgz` file
+   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.2.3.tgz` file
    - npm: `@agent-flow/dsh-crew` (if published; see *Sharing* below)
 3. **Enable** the bundle when installation finishes.
 
@@ -109,8 +109,8 @@ dependency). Checklist for sharing this repo:
    - Git (recommended when the recipient has no copy):
      `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
    - Tarball: `cd dsh/dsh-crew && pnpm pack`, then send
-     `agent-flow-dsh-crew-0.2.2.tgz` and have the recipient paste its absolute path
-     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.2.tgz`).
+     `agent-flow-dsh-crew-0.2.3.tgz` and have the recipient paste its absolute path
+     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.3.tgz`).
 4. **npm (optional):** `@agent-flow` is a placeholder scope. To publish under your
    own scope, change `name` in `dsh/dsh-crew/package.json` **and** the two package
    name references in `client.js` — the `window.__ModuleLoader__.load({ id: ... })`
@@ -126,13 +126,15 @@ dependency). Checklist for sharing this repo:
 1. Open **Plugins → Crew** (the bundle's detail page). The configuration table
    renders between the bundle description and its plugin rows.
 2. Edit any cell for `explore` / `architect` / `planner` / `reviewer`. The
-   `provider`, `model`, and `reasoningEffort` cells are dropdowns fed by the live
-   model catalog (`ctx.remote.session.modelCatalog()`, the same directory the
-   composer model picker uses); each dropdown has a **Custom…** entry that switches
-   that cell to a free-form input, and a **Pick from list** link switches back. A
-   status line under the table reports the catalog state (loaded providers/models,
-   loading, timed out, unavailable) so a failed catalog read never leaves the page
-   without feedback. Effort options follow the row's effective provider + model.
+   `provider`, `model`, and `reasoningEffort` cells are dropdowns fed by the bundle's
+   own Host route (`GET /agent-flow/dsh-crew/catalog`), which reads the live `llm`
+   registry (providers → models → reasoning efforts) and caches it for 30 s. Each
+   dropdown has a **Custom…** entry that switches that cell to a free-form input, and
+   a **Pick from list** link switches back. A status line under the table reports the
+   catalog state; if the live read fails or exceeds 8 s, the table falls back to
+   built-in DeepSeek provider/model/effort options with a notice, so dropdowns remain
+   available and a typed custom value always works. Effort options follow the row's
+   effective provider + model.
 3. Press **Save**. The page writes the `crew-config` settings namespace and reports
    success; a revision conflict keeps your draft and asks you to review it.
 4. The next `crew_*` call uses the new provider, model, effort, and persona. No
