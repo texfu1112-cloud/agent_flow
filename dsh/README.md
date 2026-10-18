@@ -48,7 +48,7 @@ Rules that keep them from stepping on each other:
 # Desktop: Plugins -> Add plugin -> Install third-party plugin
 #   folder:   /abs/path/to/agent_flow/dsh/dsh-crew   (local dev; run pnpm install there first)
 #   git:      git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew
-#   tarball:  /abs/path/agent-flow-dsh-crew-0.2.0.tgz
+#   tarball:  /abs/path/agent-flow-dsh-crew-0.2.1.tgz
 #   npm name: @agent-flow/dsh-crew                    (after publishing)
 
 # CLI (same forms; folder path also works)

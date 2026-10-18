@@ -41,6 +41,10 @@ window.__ModuleLoader__.load({
       saveError: 'The save request failed; the draft was kept, try again.',
       reset: 'Discard changes',
       ariaLabel: '{role} {field}',
+      catalogHint: 'Dropdown suggestions come from the current model catalog; you can still type a custom value.',
+      catalogUnavailable: 'The model catalog is unavailable here; type the provider and model ids directly.',
+      catalogError: 'Could not load the model catalog: {message}',
+      retry: 'Retry',
     };
 
     /** Simplified Chinese copy for the crew configuration page. */
@@ -77,6 +81,10 @@ window.__ModuleLoader__.load({
       saveError: '保存请求失败；草稿已保留，请重试。',
       reset: '放弃改动',
       ariaLabel: '{role} {field}',
+      catalogHint: '下拉建议来自当前模型目录；也可以直接输入自定义值。',
+      catalogUnavailable: '此处未提供模型目录，可直接输入 provider 与 model。',
+      catalogError: '模型目录加载失败：{message}',
+      retry: '重试',
     };
 
     /** Rows of the settings table, in the host schema's role order. */
@@ -94,6 +102,138 @@ window.__ModuleLoader__.load({
       { id: 'reasoningEffort', labelKey: 'fieldEffort', placeholderKey: 'placeholderEffort' },
       { id: 'persona', labelKey: 'fieldPersona', placeholderKey: 'placeholderPersona', multiline: true, wide: true },
     ];
+
+    /** Datalist id prefix unique to this page instance. */
+    const LIST_PREFIX = 'dsh-crew-catalog-' + Math.random().toString(36).slice(2, 8);
+
+    /**
+     * Read-only store for the Host model catalog powering the input suggestions.
+     * The page keeps working as plain text inputs when the catalog cannot be read
+     * (older Host, restricted Remote namespace, transient failure).
+     * @param ctx - client plugin context (optional Remote lookup).
+     * @returns a subscribeable snapshot store with a lazy load().
+     */
+    function createCatalogStore(ctx) {
+      let state = { status: 'idle', groups: [], failures: [], error: null };
+      const listeners = new Set();
+      let inflight;
+      const publish = (patch) => {
+        state = { ...state, ...patch };
+        for (const listener of listeners) listener();
+      };
+      const callRemote = async (namespace, method) => {
+        if (namespace === undefined || namespace === null || typeof namespace[method] !== 'function') return undefined;
+        return await namespace[method]();
+      };
+      const read = async (remote) => {
+        let catalogResult;
+        try {
+          catalogResult = await callRemote(remote === undefined ? undefined : remote.session, 'modelCatalog');
+        } catch (error) {
+          catalogResult = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
+        }
+        if (catalogResult !== undefined && catalogResult !== null && catalogResult.ok === true) {
+          const value = catalogResult.value ?? {};
+          return {
+            groups: Array.isArray(value.groups) ? value.groups : [],
+            failures: Array.isArray(value.failures) ? value.failures : [],
+            error: null,
+          };
+        }
+        const message = catalogResult !== undefined && catalogResult !== null && catalogResult.ok === false
+          ? catalogResult.error && catalogResult.error.message
+          : undefined;
+        // Fallback: at least suggest the configured provider ids.
+        let providersResult;
+        try {
+          providersResult = await callRemote(remote === undefined ? undefined : remote.llm, 'listProviders');
+        } catch (error) {
+          providersResult = undefined;
+        }
+        const providers = providersResult !== undefined && providersResult !== null && providersResult.ok === true
+          ? providersResult.value
+          : Array.isArray(providersResult) ? providersResult : undefined;
+        if (Array.isArray(providers) && providers.length > 0) {
+          return {
+            groups: providers.map((provider) => ({ id: provider.id, name: provider.name ?? provider.id, models: [] })),
+            failures: [],
+            error: message ?? null,
+          };
+        }
+        return { groups: [], failures: [], error: message ?? 'model catalog unavailable' };
+      };
+      return {
+        getSnapshot: () => state,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        load: (force = false) => {
+          if (inflight !== undefined && force !== true) return inflight;
+          if (force !== true && state.status === 'ready') return Promise.resolve(state);
+          const remote = typeof ctx.get === 'function' ? ctx.get('remote') : undefined;
+          if (remote === undefined || remote === null) {
+            publish({ status: 'unavailable', error: null });
+            return Promise.resolve(state);
+          }
+          publish({ status: 'loading', error: null });
+          inflight = read(remote)
+            .then(({ groups, failures, error }) => {
+              publish({ status: groups.length > 0 ? 'ready' : 'error', groups, failures, error });
+              return state;
+            })
+            .finally(() => {
+              inflight = undefined;
+            });
+          return inflight;
+        },
+      };
+    }
+
+    /** Look up one provider group of the catalog by its route id. */
+    function groupOf(state, providerId) {
+      if (!Array.isArray(state.groups)) return undefined;
+      return state.groups.find((group) => group.id === providerId);
+    }
+
+    /** Models advertised for one provider; while a custom provider is typed, all groups. */
+    function modelsFor(state, providerId) {
+      const group = groupOf(state, providerId);
+      if (group !== undefined && Array.isArray(group.models)) return group.models;
+      const groups = Array.isArray(state.groups) ? state.groups : [];
+      return groups.flatMap((entry) => (Array.isArray(entry.models) ? entry.models : []));
+    }
+
+    /** Advertised reasoning efforts for one exact provider/model pair. */
+    function effortsFor(state, providerId, modelId) {
+      const group = groupOf(state, providerId);
+      if (group === undefined || !Array.isArray(group.models)) return [];
+      const model = group.models.find((entry) => entry.id === modelId);
+      if (model === undefined || model.reasoning === undefined || !Array.isArray(model.reasoning.efforts)) return [];
+      return model.reasoning.efforts;
+    }
+
+    /**
+     * Datalist suggestions for one editable string field.
+     * @param fieldId - provider / model / reasoningEffort.
+     * @param state - catalog snapshot.
+     * @param providerId - the row's effective provider id.
+     * @param modelId - the row's effective model id.
+     * @returns option value/label pairs; empty when nothing is known.
+     */
+    function suggestionsFor(fieldId, state, providerId, modelId) {
+      if (fieldId === 'provider') {
+        const groups = Array.isArray(state.groups) ? state.groups : [];
+        return groups.map((group) => ({ value: group.id, label: group.name ?? group.id }));
+      }
+      if (fieldId === 'model') {
+        return modelsFor(state, providerId).map((model) => ({ value: model.id, label: model.name ?? model.id }));
+      }
+      if (fieldId === 'reasoningEffort') {
+        return effortsFor(state, providerId, modelId).map((effort) => ({ value: effort.id, label: effort.name ?? effort.id }));
+      }
+      return [];
+    }
 
     /** Theme aliases: every color comes from a DSH token so both themes stay readable. */
     const COLORS = {
@@ -215,7 +355,12 @@ window.__ModuleLoader__.load({
     function ConfigPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key;
       const form = props.form;
+      const catalog = props.catalog;
       const snapshot = useControllerSnapshot(form);
+      const catalogState = useControllerSnapshot(catalog);
+      React.useEffect(() => {
+        if (catalog !== undefined && catalog !== null && typeof catalog.load === 'function') catalog.load();
+      }, [catalog]);
       const [draft, setDraft] = React.useState({});
       const [status, setStatus] = React.useState('idle');
       const ready = snapshot.status === 'ready';
@@ -273,11 +418,31 @@ window.__ModuleLoader__.load({
       }
 
       const notice = ready ? null : t(snapshot.status === 'loading' ? 'loading' : 'unavailable');
+      let catalogNote = null;
+      if (catalogState.status === 'ready') {
+        catalogNote = h('p', { style: styles.hint }, t('catalogHint'));
+      } else if (catalogState.status === 'unavailable') {
+        catalogNote = h('p', { style: styles.hint }, t('catalogUnavailable'));
+      } else if (catalogState.status === 'error') {
+        catalogNote = h('p', { style: styles.hint },
+          t('catalogError', { message: catalogState.error ?? '' }),
+          ' ',
+          h('button', {
+            type: 'button',
+            onClick: () => catalog.load(true),
+            style: styles.resetButton,
+          }, t('retry')));
+      }
       const header = h('thead', null, h('tr', null,
         h('th', { scope: 'col', style: styles.th }, t('roleColumn')),
         FIELDS.map((field) => h('th', { key: field.id, scope: 'col', style: styles.th }, t(field.labelKey)))));
       const body = h('tbody', null, ROLES.map((role) => {
         const roleName = t(role.nameKey);
+        const providerId = valueOf('roles.' + role.id + '.provider').trim();
+        const modelId = valueOf('roles.' + role.id + '.model').trim();
+        const providerListId = LIST_PREFIX + '-providers-' + role.id;
+        const modelListId = LIST_PREFIX + '-models-' + role.id;
+        const effortListId = LIST_PREFIX + '-efforts-' + role.id;
         return h('tr', { key: role.id },
           h('td', { style: styles.roleCell },
             h('span', { style: styles.roleName }, roleName),
@@ -289,6 +454,15 @@ window.__ModuleLoader__.load({
               : field.mono
                 ? { ...styles.input, fontFamily: MONO }
                 : styles.input;
+            const suggestions = suggestionsFor(field.id, catalogState, providerId, modelId);
+            const listId = field.id === 'provider'
+              ? providerListId
+              : field.id === 'model'
+                ? modelListId
+                : field.id === 'reasoningEffort'
+                  ? effortListId
+                  : undefined;
+            const useList = listId !== undefined && suggestions.length > 0;
             const common = {
               'aria-label': t('ariaLabel', { role: roleName, field: t(field.labelKey) }),
               disabled,
@@ -297,13 +471,23 @@ window.__ModuleLoader__.load({
               style: controlStyle,
               value: valueOf(path),
               onChange: (event) => edit(path, event.target.value),
+              ...(useList ? { list: listId } : {}),
             };
             return h('td', {
               key: field.id,
               style: field.wide ? { ...styles.cell, minWidth: 220 } : styles.cell,
-            }, field.multiline
-              ? h('textarea', { ...common, rows: 2 })
-              : h('input', { ...common, type: 'text' }));
+            },
+              field.multiline
+                ? h('textarea', { ...common, rows: 2 })
+                : h('input', { ...common, type: 'text' }),
+              useList
+                ? h('datalist', { id: listId },
+                  suggestions.map((option) => h('option', {
+                    key: option.value,
+                    value: option.value,
+                    label: option.label,
+                  })))
+                : null);
           }));
       }));
 
@@ -314,6 +498,7 @@ window.__ModuleLoader__.load({
         notice === null ? null : h('p', { style: styles.notice }, notice),
         ready && readOnly ? h('p', { style: styles.notice }, t('readOnly')) : null,
         h('div', { style: styles.tableWrap }, h('table', { style: styles.table }, header, body)),
+        catalogNote,
         h('p', { style: styles.hint }, t('effortHint')),
         h('div', { style: styles.actions },
           h('button', {
@@ -337,12 +522,13 @@ window.__ModuleLoader__.load({
       inject: ['configForms', 'slots', 'locale'],
       apply(ctx) {
         const form = ctx.configForms.get('crew-config');
+        const catalog = createCatalogStore(ctx);
         ctx.effect(() => ctx.locale.register(NS, { en, zh }));
         ctx.effect(() => ctx.configForms.whileServed(['crew-config'], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
           name: 'plugins.bundle.config',
           key: '@agent-flow/dsh-crew',
           locale: NS,
-          inject: () => ({ form }),
+          inject: () => ({ form, catalog }),
         }, ConfigPage))));
       },
     };
