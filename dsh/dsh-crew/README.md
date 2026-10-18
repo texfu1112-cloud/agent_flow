@@ -21,22 +21,21 @@ Written against DSH `0.2.1-rc.2`.
 
 | Part | Kind | Purpose |
 |---|---|---|
-| `crew-config` | Host plugin (bundle entry) | Owns the volatile role config, registers the four global `crew_*` tools, applies the configured persona to each role child |
-| bundle page config | Browser half (`./client`) | Table editor in `plugins.bundle.config` (key: `@agent-flow/dsh-crew`), reading/writing the `crew-config` settings namespace through `ctx.configForms` |
-| `crew-explore` | Agent preset (child-only) | Read-only tool boundary for exploration children: `read`, `grep`/`glob`, no write/edit, no delegation |
-| `crew-architect` | Agent preset (child-only) | Same read-only boundary, used for one bounded decision |
-| `crew-planner` | Agent preset (child-only) | Same read-only boundary, used for an implementation plan |
-| `crew-reviewer` | Agent preset (child-only) | Same read-only boundary, used for a bounded-diff review |
-| `crew-role` | Agent preset (child-only) | Shared read-only boundary for user-defined roles |
+| `crew-config` | Host plugin (bundle entry) | Owns the live role config and registers one global delegation tool per role (four built-in + up to eight user-defined) |
+| bundle page config | Browser half (`./client`) | Table editors in `plugins.bundle.config` (key: `@agent-flow/dsh-crew`) for the built-in roles and the user-defined role list |
+| `crew-role` | Agent preset (child-only) | The single shared read-only tool boundary every Crew child mounts (`read`, `grep`/`glob`, no write/edit, no delegation) |
 | `crew` | Agent preset (selectable) | Mirrors the shipped `standard` tool set and adds Crew delegation guidance |
 
-The four role presets deliberately contain **no persona row**: identity and model
-routing now come from `crew-config`, so changing a role's persona in the GUI takes
-effect on the next child. The presets exist only as the read-only tool boundary.
+Built-in and user-defined roles are treated identically: **one role = one global
+tool + one config entry**, and every child mounts the same read-only `crew-role`
+preset. The persona is prepended to that child's task as its role preamble and the
+model route travels as `agentOptions`, so no per-role preset is needed. Child
+sessions record `agentPreset: crew-role`.
 
-The four `crew_*` tools are registered **globally**, so they work from any session
-preset (including `standard`); the bundle never overrides the shipped `standard`
-preset or any other preset id.
+Only two Crew presets appear in the preset list: **Crew** (selectable session
+preset) and **Crew Role** (child-only boundary). The role tools themselves are
+registered **globally**, so they work from any session preset (including
+`standard`); the bundle never overrides the shipped `standard` preset.
 
 ## Role config
 
@@ -67,7 +66,7 @@ route-owned effort; keep the same route to inherit the parent's effort.
      `pnpm install` in it first (see *Linked / local development installs* below);
      DSH records it as a `link:` dependency
    - Git: `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
-   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.2.4.tgz` file
+   - tarball: the absolute path of a packed `agent-flow-dsh-crew-0.3.0.tgz` file
    - npm: `@agent-flow/dsh-crew` (if published; see *Sharing* below)
 3. **Enable** the bundle when installation finishes.
 
@@ -110,8 +109,8 @@ dependency). Checklist for sharing this repo:
    - Git (recommended when the recipient has no copy):
      `git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew`
    - Tarball: `cd dsh/dsh-crew && pnpm pack`, then send
-     `agent-flow-dsh-crew-0.2.4.tgz` and have the recipient paste its absolute path
-     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.4.tgz`).
+     `agent-flow-dsh-crew-0.3.0.tgz` and have the recipient paste its absolute path
+     (or `dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.3.0.tgz`).
 4. **npm (optional):** `@agent-flow` is a placeholder scope. To publish under your
    own scope, change `name` in `dsh/dsh-crew/package.json` **and** the two package
    name references in `client.js` — the `window.__ModuleLoader__.load({ id: ... })`
@@ -215,6 +214,9 @@ Rules and behavior:
   unavailable when its provider has no credential.
 - Defaults in this bundle use `deepseek-account` so that a fresh install works after
   account login. Edit them in the GUI for your own providers.
+- The dropdowns only offer providers whose live catalog returns models. A provider
+  that answers with an empty catalog (for example a route without credentials) is
+  omitted — configure its credential first, then retry the page.
 - Only pass a `reasoningEffort` the adapter advertises for the route; empty is the
   safe default.
 
@@ -225,9 +227,10 @@ Each `crew_*` tool's `execute`:
 1. reads the **current** Config leaves (`.get()` on the volatile references);
 2. calls `ctx.subagents.startActivation({ provider: 'spawn', delivery: 'parent', request })`
    with:
-   - `agentPreset: crew-<role>` — the read-only tool boundary,
+   - `agentPreset: crew-role` — the shared read-only tool boundary,
    - `agentOptions: { provider, model, reasoningEffort? }` — the configured route,
-   - `persona` and `toolFilter` — forwarded request facts (see note below),
+   - `persona` and `toolFilter` — forwarded request facts; the persona also leads
+     the task prompt as the child's role preamble (see note below),
    - `maxDepth` — the child's absolute delegation cap, computed as
      `parentDelegationDepth + 1 + 0` (the child may delegate zero further levels;
      its preset mounts no delegation tools anyway).
@@ -241,14 +244,13 @@ a literal `request.maxDepth = 0` fails to start any child from a top-level paren
 (`subagent depth 1 exceeds maxDepth 0`). The plugin therefore expresses the intended
 relative policy "zero further levels below the child" as `parentDepth + 1`.
 
-**Persona:** this DSH build's `SubagentStartRequest` no longer honours a per-request
-`persona` field (it is ignored by the manager), so the request carries it for forward
-compatibility while the plugin applies it for real: on `agent/created` it registers a
-scoped `deployment:persona-prefix` section on the child's own context. That shadows
-the deployment persona for that one child and is exactly what the child's system
-prompt then shows. **`toolFilter`** is likewise forwarded for compatibility; the real
-tool boundary is the read-only role preset, and the plugin additionally hides the
-`crew_*` delegation tools inside role children.
+**Persona and toolFilter:** this DSH build's `SubagentStartRequest` no longer honours
+a per-request `persona` field (the manager ignores it), so the request still carries
+it for forward compatibility while the role preamble at the top of the task prompt is
+what actually conveys identity — identically for built-in and user-defined roles.
+**`toolFilter`** is likewise forwarded for compatibility; the real tool boundary is
+the shared read-only `crew-role` preset, and the plugin additionally hides every
+`crew_*` delegation tool inside Crew children.
 
 ## Verify
 
@@ -263,11 +265,10 @@ tool boundary is the read-only role preset, and the plugin additionally hides th
    `~/.dsh/sessions/<escaped-cwd>/<childId>/session.v4.jsonl.zstd` (child ids have no
    `session-` prefix; the file is concatenated Zstandard frames). The `request/header`
    event records the exact `provider`, `model`, and `reasoningEffort`; the
-   `system/message` event contains the child's rendered system prompt including the
-   configured persona.
-4. A role child must show `agentPreset: crew-<role>`, `delegationDepth: 1`, a
-   read-only tool list (no write/edit/bash, no `crew_*`), and
-   `turn/end.reason.kind: completed`.
+   `user/message` (task) event begins with the configured persona preamble.
+4. A role child must show `agentPreset: crew-role`, `delegationDepth: 1`, a
+   read-only tool list (no write/edit/bash, no `crew_*`), the role preamble as the
+   first lines of its task prompt, and `turn/end.reason.kind: completed`.
 
 ### HMR verification recipe
 
@@ -285,8 +286,12 @@ next `crew_architect` call after the config edit.
 
 ## Coexistence
 
-- Preset ids are namespaced (`crew-*`); the bundle never overrides the shipped
-  `standard`/`minimal`/`ptc`/`cordis` presets.
+- Preset ids are namespaced (`crew*`); the bundle adds only `crew` and `crew-role`
+  and never overrides the shipped `standard`/`minimal`/`ptc`/`cordis` presets.
+- **Upgrading from 0.2.x:** the four per-role presets (`crew-explore`,
+  `crew-architect`, `crew-planner`, `crew-reviewer`) no longer exist. Switch sessions
+  that selected one back to `standard`/`Crew` before upgrading; their role tools keep
+  working unchanged.
 - The `crew_*` tools are global by design. If you do not want them in every session
   composition, use a profile that does not select this bundle.
 - The bundle does not change Agent Teams behavior. Teammates inherit the Lead's
@@ -307,18 +312,18 @@ cold resume fails if the preset id no longer exists, so switch those sessions ba
 Run these after editing the bundle:
 
 ```sh
-# Patch structure: one insert block, 6 presets + the crew-config row,
-# no write-capable tool in role presets.
+# Patch structure: one insert block, 2 presets (crew, crew-role) + the
+# crew-config row, no write-capable tool in the role preset.
 ruby -ryaml -e '
   raw = File.read("dsh/dsh-crew/cordis.patch.yml").gsub(/!!js .*$/, "false")
   doc = YAML.load(raw)
   raise "expected one insert entry" unless doc.is_a?(Array) && doc.size == 1 && doc[0]["insert"]
   rows = doc[0]["insert"]
   presets = rows.select { |r| r["name"] == "@deepseek-ai/dsh-agent-preset" }
-  raise "expected 6 presets, got #{presets.size}" unless presets.size == 6
+  raise "expected 2 presets, got #{presets.size}" unless presets.size == 2
   raise "missing crew-config row" unless rows.any? { |r| r["id"] == "crew-config" && r["name"] == "@agent-flow/dsh-crew" }
   role_ids = presets.map { |r| r["config"]["id"] }.sort
-  raise "unexpected presets: #{role_ids}" unless role_ids == %w[crew crew-architect crew-explore crew-planner crew-reviewer crew-role]
+  raise "unexpected presets: #{role_ids}" unless role_ids == %w[crew crew-role]
   puts "ok: #{presets.size} presets + crew-config"
 '
 python3 -c 'import json,sys; [json.load(open(p)) for p in sys.argv[1:]]; print("ok: json")' \

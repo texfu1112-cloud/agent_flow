@@ -1,17 +1,18 @@
-# dsh-crew — configurable Crew roles: one Host plugin plus four role presets.
+# dsh-crew — configurable Crew roles: one Host plugin, one shared role boundary.
 #
 # Loaded as a DSH bundle patch: `package.json` declares `dsh.bundle.patch`.
 #
 # Layout:
-#   - `crew-config` (Host plugin `@agent-flow/dsh-crew`) registers four global
-#     delegation tools and owns the live configuration (provider, model,
-#     reasoningEffort, persona per role). Its volatile Config is edited from the
-#     Web GUI on the bundle's Plugins page and applies to the next delegation
-#     without a restart.
-#   - `crew-explore` / `crew-architect` / `crew-planner` / `crew-reviewer` are
-#     child-only presets that supply the read-only tool boundary the role tools
-#     mount. Identity and model routing come from `crew-config`, so these
-#     presets deliberately carry no persona row.
+#   - `crew-config` (Host plugin `@agent-flow/dsh-crew`) registers one global
+#     delegation tool per role — the four built-in roles plus up to eight
+#     user-defined roles — and owns the live configuration (provider, model,
+#     reasoningEffort, persona per role). Built-in role fields are volatile and
+#     apply to the next delegation without a restart; user-defined roles are
+#     ordinary config and reload the plugin on save.
+#   - `crew-role` is the single child-only preset every Crew child mounts. It is
+#     only the read-only tool boundary: identity (persona) and model routing are
+#     passed with each delegation (persona as the task preamble, model as
+#     `agentOptions`), so built-in and user-defined roles behave identically.
 #   - `crew` is a selectable preset that mirrors the shipped `standard` preset's
 #     tool set and adds the delegation guidance; the role tools themselves are
 #     global and available in every preset.
@@ -21,179 +22,17 @@
 # Compatibility: written against DSH 0.2.1-rc.2.
 
 - insert:
-    - id: preset-crew-explore
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: crew-explore
-        name: Explore
-        description: Read-only repository exploration that returns a compact evidence capsule.
-        order: 30
-        plugins:
-          # Identity/persona and model route come from crew-config; this preset
-          # is only the child's read-only tool boundary.
-          - id: agent-instructions
-            name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 32768
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              readImage: false
-              write: false
-              edit: false
-          - id: tool-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: tool-result-pruner
-                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
-    - id: preset-crew-architect
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: crew-architect
-        name: Architect
-        description: One bounded, high-impact technical decision from a curated evidence packet.
-        order: 31
-        plugins:
-          - id: agent-instructions
-            name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 32768
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              readImage: false
-              write: false
-              edit: false
-          - id: tool-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: tool-result-pruner
-                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
-    - id: preset-crew-planner
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: crew-planner
-        name: Planner
-        description: An implementation-ready plan from a curated evidence packet.
-        order: 32
-        plugins:
-          - id: agent-instructions
-            name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 32768
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              readImage: false
-              write: false
-              edit: false
-          - id: tool-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: tool-result-pruner
-                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
-    - id: preset-crew-reviewer
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: crew-reviewer
-        name: Reviewer
-        description: Reviews a bounded diff against its task and verification evidence.
-        order: 33
-        plugins:
-          - id: agent-instructions
-            name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 32768
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              readImage: false
-              write: false
-              edit: false
-          - id: tool-fs-search
-            name: '@deepseek-ai/dsh-tool-fs-search'
-            config:
-              sampleOverCapGlobResults: false
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: tool-result-pruner
-                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
-
     - id: preset-crew-role
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: crew-role
         name: Crew Role
-        description: Child-only read-only boundary for user-defined Crew roles.
+        description: Child-only read-only tool boundary mounted by every Crew delegation, built-in or user-defined.
         order: 34
         plugins:
-          # Identity/persona, model route, and the role's task preamble come from
-          # crew-config.customRoles; this preset is only the read-only boundary.
+          # Every Crew child (built-in or user-defined role) mounts this read-only
+          # boundary. Identity/persona and the model route travel with each
+          # delegation, so this preset carries no persona row.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -226,7 +65,6 @@
                   thresholdChars: 8192
                   headChars: 4096
                   tailChars: 1024
-
     - id: preset-crew
       name: '@deepseek-ai/dsh-agent-preset'
       config:

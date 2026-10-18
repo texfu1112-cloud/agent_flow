@@ -135,7 +135,7 @@ cp .opencode/plugins/stateful-compaction.js ~/.config/opencode/plugins/
 
 ## DeepSeek Harness 组合包（可选）
 
-仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成四个只读角色预设，并提供一个带 GUI 配置页的 Host 插件：四个内置角色（explore/architect/planner/reviewer）的 provider、model、reasoningEffort、persona，以及最多 8 个**自定义角色**（保存后生成 crew_<id> 工具），都在 **插件 → Crew** 页面里用表格编辑，保存后下一次委派立即生效（volatile 配置，无需重启）；`crew_explore` / `crew_architect` / `crew_planner` / `crew_reviewer` 四个委派工具在所有会话中可用。它不修改 OpenCode 的任何配置，两者可以并存。
+仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成一个带 GUI 配置页的 Host 插件：所有角色共用一个只读边界 preset `crew-role`，模型/强度/人格按角色在委派时传入；四个内置角色（explore/architect/planner/reviewer）加上最多 8 个**自定义角色**（保存后生成 crew_<id> 工具）都在 **插件 → Crew** 页面里用表格编辑，预设列表只保留 Crew 与 Crew Role 两项，保存后下一次委派立即生效（volatile 配置，无需重启）；`crew_explore` / `crew_architect` / `crew_planner` / `crew_reviewer` 四个委派工具在所有会话中可用。它不修改 OpenCode 的任何配置，两者可以并存。
 
 ### 分享给别人安装
 
@@ -187,10 +187,10 @@ dsh plugin --profile desktop add 'git+https://github.com/texfu1112-cloud/agent_f
 维护者打包，把 `.tgz` 发给对方：
 
 ```sh
-cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.2.4.tgz
+cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.3.0.tgz
 ```
 
-对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.4.tgz`）。
+对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.3.0.tgz`）。
 
 **方式 D：发布到 npm（可选）**
 

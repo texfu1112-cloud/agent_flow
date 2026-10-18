@@ -10,15 +10,15 @@
  * - four global delegation tools (`crew_explore`, `crew_architect`,
  *   `crew_planner`, `crew_reviewer`) that read the live Config at execute
  *   time and start a managed child activation through `ctx.subagents`;
- * - a per-child persona override applied through `agent/created`, because
- *   this DSH build no longer accepts `persona` in the activation request
- *   (the request still carries the documented field for forward
- *   compatibility; the scoped prompt section is what actually renders it).
+ * - identity and model routing passed with every delegation: the persona is
+ *   prepended to the child's task as its role preamble, the model route travels
+ *   as `agentOptions`, and one shared read-only Agent Preset (`crew-role`)
+ *   supplies the tool boundary. That makes built-in and user-defined roles
+ *   behave identically; `request.persona` is still forwarded for forward
+ *   compatibility, though this build ignores it in favour of the preamble.
  *
- * The four `crew-*` Agent Presets declared by `cordis.patch.yml` stay the
- * child's tool boundary (read-only); this plugin contributes identity and
- * model routing. Volatile fields let a GUI save take effect on the next
- * delegation without reloading the plugin or restarting the process.
+ * Volatile fields let a GUI save take effect on the next delegation without
+ * reloading the plugin or restarting the process.
  *
  * @module @agent-flow/dsh-crew
  */
@@ -29,10 +29,7 @@ import z from '@deepseek-ai/schemastery';
 export const name = 'crew-config';
 
 /** Host services the plugin registers against. */
-export const inject = ['tools', 'subagents', 'systemPrompt'];
-
-/** Stable prompt-section name owned by the system prompt registry. */
-const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix';
+export const inject = ['tools', 'subagents'];
 
 /** HTTP path the browser half uses to read the model catalog (same origin). */
 const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
@@ -128,22 +125,18 @@ export { CATALOG_PATH, ROLES_PATH };
 export const ROLE_INFO = {
   explore: {
     tool: 'crew_explore',
-    preset: 'crew-explore',
     toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
   },
   architect: {
     tool: 'crew_architect',
-    preset: 'crew-architect',
     toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
   },
   planner: {
     tool: 'crew_planner',
-    preset: 'crew-planner',
     toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
   },
   reviewer: {
     tool: 'crew_reviewer',
-    preset: 'crew-reviewer',
     toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
   },
 };
@@ -402,17 +395,6 @@ function readJsonBody(req, limit = 64 * 1024) {
 }
 
 /**
- * Resolve the Crew role of a live child from its durable session header.
- * @param {{ session?: { header?: { agentPreset?: string } } }} agent
- * @returns {string | undefined} role id when the session runs a crew-* preset.
- */
-function roleOfAgent(agent) {
-  const preset = agent?.session?.header?.agentPreset;
-  if (typeof preset !== 'string') return undefined;
-  return ROLE_NAMES.find((role) => ROLE_INFO[role].preset === preset);
-}
-
-/**
  * Read one required, non-empty string argument.
  * @param {unknown} value - model-supplied argument.
  * @param {string} field - argument name for the diagnostic.
@@ -471,8 +453,8 @@ function defineRoleTool(ctx, config, role) {
     name: info.tool,
     description:
       `Delegate one bounded task to the Crew ${role} role. ` +
-      `The child runs under the "${info.preset}" Agent Preset, which mounts only read-only tools, ` +
-      `and it uses the provider, model, reasoning effort, and persona currently saved in the Crew ` +
+      `The child runs under the shared "${CUSTOM_ROLE_PRESET}" Agent Preset, which mounts only read-only ` +
+      `tools, and it uses the provider, model, reasoning effort, and persona currently saved in the Crew ` +
       `configuration (Plugins → Crew). Use it for ${purpose}. ` +
       `This tool starts an independently managed child and immediately returns its id; ` +
       `the runtime notifies you when it finishes. Do not delegate writing, editing, or verification commands.`,
@@ -539,15 +521,16 @@ function defineRoleTool(ctx, config, role) {
           : {}),
       };
 
+      const identity = current.persona.length > 0 ? current.persona : `You are ${role}, a built-in Crew role.`;
       const started = await ctx.subagents.startActivation({
         provider: 'spawn',
         label: description,
         delivery: 'parent',
         signal: exec.signal,
         request: {
-          prompt: [{ type: 'text', text: prompt }],
+          prompt: [{ type: 'text', text: `${identity}\n\n${prompt}` }],
           parent,
-          agentPreset: info.preset,
+          agentPreset: CUSTOM_ROLE_PRESET,
           agentOptions,
           // Forward-compatible request facts. This DSH build applies persona
           // through the scoped prompt section installed on `agent/created`
@@ -638,7 +621,8 @@ function defineCustomRoleTool(ctx, role) {
         model: role.model,
         ...(role.reasoningEffort.length > 0 ? { reasoningEffort: role.reasoningEffort } : {}),
       };
-      const text = role.persona.length > 0 ? `${role.persona}\n\n${prompt}` : prompt;
+      const identity = role.persona.length > 0 ? role.persona : `You are ${display}, a user-defined Crew role.`;
+      const text = `${identity}\n\n${prompt}`;
       const started = await ctx.subagents.startActivation({
         provider: 'spawn',
         label: description,
@@ -784,53 +768,31 @@ export function apply(ctx, config) {
   // child. The four role presets own the read-only tool boundary; this adds
   // the identity that the preset no longer carries and keeps a depth-capped
   // child from seeing delegation tools it cannot use.
+  // Every Crew child mounts the shared read-only preset; keep the Crew
+  // delegation tools (built-in and dynamic) out of its tool surface.
   ctx.on('agent/created', ({ agent }) => {
-    // `agent/created` is a serial listener: throwing here would reject the
-    // child's creation announcement, so every optional contribution is
-    // contained and only logged. A missed persona or deny list must not break
-    // the delegation itself.
-    let role;
     let preset;
     try {
       preset = agent?.session?.header?.agentPreset;
-      role = roleOfAgent(agent);
     } catch (error) {
-      ctx.logger.warn(`crew-config: could not resolve the created child's role: ${String(error)}`);
+      ctx.logger.warn(`crew-config: could not read the created child's preset: ${String(error)}`);
       return;
     }
-    // User-defined roles share one read-only preset and carry their identity in
-    // the task preamble; only the built-in roles get a scoped system persona.
-    const crewChild = role !== undefined || preset === CUSTOM_ROLE_PRESET;
-    if (!crewChild) return;
-    try {
-      const current = readRole(config, role);
-      if (current.persona.length > 0) {
-        agent.ctx.systemPrompt.section({
-          name: PERSONA_PREFIX_SECTION,
-          order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
-          text: current.persona,
-        });
-      }
-    } catch (error) {
-      // A preset that already mounts the persona section collides by design;
-      // keep the deployment persona rather than failing the delegation.
-      ctx.logger.warn(`crew-config: could not apply the ${role} child's persona: ${String(error)}`);
-    }
+    if (preset !== CUSTOM_ROLE_PRESET) return;
     try {
       agent.ctx.tools.restrict({ deny: crewToolDenyList });
     } catch (error) {
       // A denylist naming a tool this composition does not register is not
-      // fatal; the child still cannot delegate because its role preset mounts
-      // no delegation tools and its absolute depth cap leaves no further level.
-      ctx.logger.warn(
-        `crew-config: could not narrow the ${role} child's tool surface: ${String(error)}`,
-      );
+      // fatal; the child still cannot delegate because its preset mounts no
+      // delegation tools and its absolute depth cap leaves no further level.
+      ctx.logger.warn(`crew-config: could not narrow the Crew child's tool surface: ${String(error)}`);
     }
   });
 
   ctx.logger.info(
-    'crew-config: registered %d built-in role tools and %d custom role tool(s); edit roles in Plugins → Crew',
+    'crew-config: registered %d built-in and %d custom role tools; every child mounts the read-only "%s" preset',
     CREW_TOOL_NAMES.length,
     customRoles.length,
+    CUSTOM_ROLE_PRESET,
   );
 }

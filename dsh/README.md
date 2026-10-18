@@ -9,7 +9,7 @@ by OpenCode.
 
 | Path | Purpose |
 |---|---|
-| `dsh/dsh-crew/` | A self-contained DSH **bundle**: one Host plugin `crew-config` with a live (volatile) role configuration + four global delegation tools, a browser config page, one selectable `crew` preset, and four read-only role presets (`crew-explore`, `crew-architect`, `crew-planner`, `crew-reviewer`) |
+| `dsh/dsh-crew/` | A self-contained DSH **bundle**: one Host plugin `crew-config` with live role configuration + one global delegation tool per role (four built-in + up to eight user-defined), a browser config page, one selectable `crew` preset, and one shared read-only `crew-role` boundary preset |
 | `dsh/dsh-crew/cordis.patch.yml` | The bundle payload: preset declarations, the read-only role boundaries, and the `crew-config` Host row |
 | `dsh/dsh-crew/lib/index.js` | Host half: Schemastery `Config`, the four `crew_*` tools, and the per-child persona hook |
 | `dsh/dsh-crew/client.js` | Browser half: the `plugins.bundle.config` table editor backed by `ctx.configForms` (hand-written `window.__ModuleLoader__` module, no build step) |
@@ -48,7 +48,7 @@ Rules that keep them from stepping on each other:
 # Desktop: Plugins -> Add plugin -> Install third-party plugin
 #   folder:   /abs/path/to/agent_flow/dsh/dsh-crew   (local dev; run pnpm install there first)
 #   git:      git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew
-#   tarball:  /abs/path/agent-flow-dsh-crew-0.2.4.tgz
+#   tarball:  /abs/path/agent-flow-dsh-crew-0.3.0.tgz
 #   npm name: @agent-flow/dsh-crew                    (after publishing)
 
 # CLI (same forms; folder path also works)
@@ -98,7 +98,7 @@ ruby -ryaml -e '
   raise "expected one insert entry" unless doc.is_a?(Array) && doc.size == 1 && doc[0]["insert"]
   rows = doc[0]["insert"]
   presets = rows.select { |r| r["name"] == "@deepseek-ai/dsh-agent-preset" }
-  raise "expected 6 presets, got #{presets.size}" unless presets.size == 6
+  raise "expected 2 presets, got #{presets.size}" unless presets.size == 2
   raise "missing crew-config row" unless rows.any? { |r| r["id"] == "crew-config" && r["name"] == "@agent-flow/dsh-crew" }
   puts "ok: #{presets.size} presets + crew-config"
 '

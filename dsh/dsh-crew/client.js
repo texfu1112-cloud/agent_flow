@@ -198,19 +198,17 @@ window.__ModuleLoader__.load({
       },
     ];
 
-    /** Models of one built-in provider group. */
-    function fallbackModels(providerId) {
-      const group = FALLBACK_GROUPS.find((entry) => entry.id === providerId);
-      return group === undefined ? [] : group.models;
-    }
-
-    /** Fill providers that answered without models from the built-in map. */
-    function mergeFallback(groups) {
-      if (!Array.isArray(groups) || groups.length === 0) return FALLBACK_GROUPS;
-      return groups.map((group) => {
-        if (Array.isArray(group.models) && group.models.length > 0) return group;
-        return { ...group, models: fallbackModels(group.id) };
-      });
+    /**
+     * Keep only providers whose live catalog returned models. A provider that
+     * answers with no models (for example a route without credentials) cannot
+     * serve a delegation, so it must not be offered as a choice; the built-in
+     * fallback list is used only when nothing live is usable.
+     */
+    function usableGroups(groups) {
+      const usable = Array.isArray(groups)
+        ? groups.filter((group) => Array.isArray(group.models) && group.models.length > 0)
+        : [];
+      return usable.length === 0 ? FALLBACK_GROUPS : usable;
     }
 
     /**
@@ -240,7 +238,7 @@ window.__ModuleLoader__.load({
           });
           if (!response.ok) throw new Error('HTTP ' + String(response.status));
           const payload = await response.json();
-          const groups = mergeFallback(payload.groups);
+          const groups = usableGroups(payload.groups);
           return { groups, failures: [], error: null, timedOut: false, fallback: groups === FALLBACK_GROUPS };
         } catch (error) {
           const aborted = error instanceof Error && error.name === 'AbortError';
