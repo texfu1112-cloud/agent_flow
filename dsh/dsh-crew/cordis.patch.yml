@@ -1,13 +1,22 @@
-# dsh-crew — role presets and model-bound delegation tools.
+# dsh-crew — configurable Crew roles: one Host plugin plus four role presets.
 #
 # Loaded as a DSH bundle patch: `package.json` declares `dsh.bundle.patch`.
-# It declares one selectable agent preset (`crew`) plus four child-only role
-# presets (`crew-explore`, `crew-architect`, `crew-planner`, `crew-reviewer`).
 #
-# The `crew` preset mirrors the shipped `standard` preset's tool set and adds
-# four delegation tools. Every role tool is a normal @deepseek-ai/dsh-tool-subagent
-# instance, so identity comes from the role preset and the model comes from
-# `agentOptions` — edit those two model routes to match your providers.
+# Layout:
+#   - `crew-config` (Host plugin `@agent-flow/dsh-crew`) registers four global
+#     delegation tools and owns the live configuration (provider, model,
+#     reasoningEffort, persona per role). Its volatile Config is edited from the
+#     Web GUI on the bundle's Plugins page and applies to the next delegation
+#     without a restart.
+#   - `crew-explore` / `crew-architect` / `crew-planner` / `crew-reviewer` are
+#     child-only presets that supply the read-only tool boundary the role tools
+#     mount. Identity and model routing come from `crew-config`, so these
+#     presets deliberately carry no persona row.
+#   - `crew` is a selectable preset that mirrors the shipped `standard` preset's
+#     tool set and adds the delegation guidance; the role tools themselves are
+#     global and available in every preset.
+#
+# This bundle never overrides the shipped `standard` preset.
 #
 # Compatibility: written against DSH 0.2.1-rc.2.
 
@@ -20,14 +29,8 @@
         description: Read-only repository exploration that returns a compact evidence capsule.
         order: 30
         plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: |-
-                You are Explore. Investigate exactly the question you are given and return a compact evidence capsule.
-                Search broadly enough to be correct, but do not dump raw files, long search results, or build logs.
-                Every conclusion must name the file and the line range that supports it.
-                Treat the requested capsule size as a hard limit. Do not edit files or run mutating commands.
+          # Identity/persona and model route come from crew-config; this preset
+          # is only the child's read-only tool boundary.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -41,11 +44,14 @@
               edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: compaction
             name: cordis:group
             group: true
             isolate:
               compaction: true
+              toolResultPruner: true
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
@@ -65,15 +71,6 @@
         description: One bounded, high-impact technical decision from a curated evidence packet.
         order: 31
         plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: |-
-                You are Architect. Make one bounded technical decision from the evidence you are given.
-                Do not scan the repository; if a fact is missing, name the exact missing fact instead.
-                Evaluate boundaries, invariants, failure modes, tradeoffs, migration, and rollback.
-                Prefer the smallest decision consistent with the existing architecture, and separate durable
-                architecture from task-local implementation detail. Do not modify files.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -87,11 +84,14 @@
               edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: compaction
             name: cordis:group
             group: true
             isolate:
               compaction: true
+              toolResultPruner: true
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
@@ -111,14 +111,6 @@
         description: An implementation-ready plan from a curated evidence packet.
         order: 32
         plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: |-
-                You are Planner. Turn the already-curated evidence into an implementation-ready plan.
-                Map acceptance criteria to concrete edits (paths and symbols) and to verification commands.
-                State ordering, affected paths, edge cases, compatibility concerns, and rollback where applicable.
-                Prefer the smallest viable change and reuse existing abstractions. Do not modify files.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -132,11 +124,14 @@
               edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: compaction
             name: cordis:group
             group: true
             isolate:
               compaction: true
+              toolResultPruner: true
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
@@ -156,14 +151,6 @@
         description: Reviews a bounded diff against its task and verification evidence.
         order: 33
         plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: |-
-                You are Reviewer. Review only the diff and task context you are given, never the whole repository.
-                Report findings in three groups: blocking issues, non-blocking suggestions, and verification gaps.
-                Cite file and line for every finding, and state what evidence would change your conclusion.
-                Do not edit files.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -177,11 +164,14 @@
               edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: compaction
             name: cordis:group
             group: true
             isolate:
               compaction: true
+              toolResultPruner: true
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
@@ -199,7 +189,7 @@
       config:
         id: crew
         name: Crew
-        description: Standard tool set plus model-bound role delegation (explore, architect, planner, reviewer).
+        description: Standard tool set plus model-configurable Crew role delegation (explore, architect, planner, reviewer).
         order: 20
         plugins:
           - id: persona
@@ -209,7 +199,9 @@
                 You are a coding agent powered by the {{model}} model.
                 Delegate read-only exploration to crew_explore, architecture decisions to crew_architect,
                 implementation plans to crew_planner, and diff review to crew_reviewer.
-                Do the implementation yourself; do not delegate writing, editing, or verification commands.
+                Those tools use the role models and personas saved on the bundle's configuration page
+                (Plugins → Crew). Do the implementation yourself; do not delegate writing, editing,
+                or verification commands.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -324,46 +316,12 @@
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
-          # ---- Role-bound delegation tools -------------------------------------------
-          # Each tool pins one role preset (identity + tool boundary) and one LLM route.
-          # Edit `agentOptions` below to match the providers configured on this machine.
-          - id: tool-subagent-crew-explore
-            name: '@deepseek-ai/dsh-tool-subagent'
-            config:
-              provider: spawn
-              toolName: crew_explore
-              agentPreset: crew-explore
-              agentOptions:
-                provider: deepseek-account
-                model: deepseek-flash
-              maxDepth: 0
-          - id: tool-subagent-crew-architect
-            name: '@deepseek-ai/dsh-tool-subagent'
-            config:
-              provider: spawn
-              toolName: crew_architect
-              agentPreset: crew-architect
-              agentOptions:
-                provider: openai-codex
-                model: gpt-5.6-sol
-              maxDepth: 0
-          - id: tool-subagent-crew-planner
-            name: '@deepseek-ai/dsh-tool-subagent'
-            config:
-              provider: spawn
-              toolName: crew_planner
-              agentPreset: crew-planner
-              agentOptions:
-                provider: openai-codex
-                model: gpt-5.6-sol
-              maxDepth: 0
-          - id: tool-subagent-crew-reviewer
-            name: '@deepseek-ai/dsh-tool-subagent'
-            config:
-              provider: spawn
-              toolName: crew_reviewer
-              agentPreset: crew-reviewer
-              agentOptions:
-                provider: openai-codex
-                model: gpt-5.6-sol
-              maxDepth: 0
+
+    # ---- Live Crew configuration and role-bound delegation tools --------------
+    # One Host entry owns the volatile role config (edited in the Web GUI on the
+    # bundle's Plugins page) and registers crew_explore / crew_architect /
+    # crew_planner / crew_reviewer globally. Each tool mounts one crew-* role
+    # preset (read-only tool boundary) and passes the saved provider, model,
+    # reasoningEffort, and persona in its subagent activation request.
+    - id: crew-config
+      name: '@agent-flow/dsh-crew'

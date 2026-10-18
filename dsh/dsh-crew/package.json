@@ -1,27 +1,41 @@
 {
   "name": "@agent-flow/dsh-crew",
-  "version": "0.1.0",
-  "description": "Multi-model role presets for DeepSeek Harness: cheap exploration, strong-model architecture, planning, and review.",
+  "version": "0.2.0",
+  "description": "Configurable multi-model Crew roles for DeepSeek Harness: live provider/model/persona settings for read-only exploration, architecture, planning, and review delegation.",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
+    "client.js",
     "cordis.patch.yml",
     "icon.svg",
     "locale/*.json",
     "README.md"
   ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.5"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
     }
   },
   "engines": {

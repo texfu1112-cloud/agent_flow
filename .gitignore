@@ -1,6 +1,7 @@
 .DS_Store
 *.log
 node_modules/
+.pnpm-store/
 .opencode/.gitignore
 .opencode/node_modules/
 .opencode/package.json

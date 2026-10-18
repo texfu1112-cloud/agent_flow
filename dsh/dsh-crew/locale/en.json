@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Crew roles",
-    "description": "Role presets with model-bound delegation: cheap exploration, strong-model architecture, planning, and review."
+    "description": "Configurable multi-model delegation: set the provider, model, reasoning effort, and persona for exploration, architecture, planning, and review, then delegate to each role from any session."
   }
 }

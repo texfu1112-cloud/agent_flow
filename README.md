@@ -135,12 +135,77 @@ cp .opencode/plugins/stateful-compaction.js ~/.config/opencode/plugins/
 
 ## DeepSeek Harness 组合包（可选）
 
-仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成预设和绑定模型的委派工具。它不修改 OpenCode 的任何配置，两者可以并存；安装、模型路由修改、验证与卸载见 [`dsh/README.md`](dsh/README.md)。
+仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成四个只读角色预设，并提供一个带 GUI 配置页的 Host 插件：四个角色（explore/architect/planner/reviewer）的 provider、model、reasoningEffort、persona 在 **插件 → Crew** 页面里用表格编辑，保存后下一次委派立即生效（volatile 配置，无需重启）；`crew_explore` / `crew_architect` / `crew_planner` / `crew_reviewer` 四个委派工具在所有会话中可用。它不修改 OpenCode 的任何配置，两者可以并存。
+
+### 分享给别人安装
+
+安装的本质是给 DSH 插件管理器一个它能解析的包 spec：**本机文件夹绝对路径**、Git URL、tarball 或 npm 包名都可以。
+
+- **你本机现在就是这么装的**：profile 里记录的是 `link:/Users/xiafu/source/agent_flow/dsh/dsh-crew`，属于「文件夹安装」。
+- **文件夹安装只对「能拿到这个文件夹的机器」有效**：别人克隆了本仓库或有同一份文件夹时，填文件夹绝对路径即可（链接安装不会代装依赖，需要该目录里已有 `node_modules`，见方式 A）。
+- **对方没有这个文件夹时**，用 Git URL 或 tarball（依赖由插件管理器自动安装，对方不需要 Node/pnpm）。
+
+前提：对方使用 DSH `0.2.1-rc.x`，且已配置好至少一个可用 provider（例如 `deepseek-account` 账号登录）。
+
+**方式 A：文件夹安装（本机开发 / 对方也持有该文件夹）**
+
+1. 安装依赖（链接安装从 bundle 自己的目录解析依赖，必须先装一次）：
+
+   ```sh
+   cd dsh/dsh-crew && pnpm install     # 生成 node_modules/@deepseek-ai/schemastery
+   ```
+
+2. DSH Desktop：**插件 → 添加插件 → 安装第三方插件**，填 bundle 文件夹的**绝对路径**：
+
+   ```text
+   /path/to/agent_flow/dsh/dsh-crew
+   ```
+
+   （本机当前就是 `/Users/xiafu/source/agent_flow/dsh/dsh-crew`；profile 会把它记为 `link:`。）
+3. **启用** bundle。
+
+> 如果对方不想装 Node/pnpm，也可以把 `dsh/dsh-crew` 文件夹**连同其 `node_modules` 一起**压缩发过去，对方解压后填该文件夹的绝对路径即可。
+
+**方式 B：从 GitHub 安装（分享推荐）**
+
+先 commit + push（Git 安装只读取已推送的 commit），然后对方在 **添加插件** 里填：
 
 ```text
-插件 → 添加插件 → 安装第三方插件 → @agent-flow/dsh-crew
-新会话 → 预设选择器 → Crew
+git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew
 ```
+
+`<commit>` 换成 `git rev-parse HEAD` 的结果（固定 commit 最稳，也可用 `#main`）。pnpm 会自动为 `dsh/dsh-crew` 安装依赖（`@deepseek-ai/schemastery`，公共 npm 包）。CLI 等价命令：
+
+```sh
+dsh plugin --profile desktop add 'git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew'
+```
+
+> 仓库为私有时，对方需要先配置 GitHub 凭据；公开仓库可直接安装。
+
+**方式 C：tarball 文件**
+
+维护者打包，把 `.tgz` 发给对方：
+
+```sh
+cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.2.0.tgz
+```
+
+对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.2.0.tgz`）。
+
+**方式 D：发布到 npm（可选）**
+
+`@agent-flow` 是占位 scope。改成自己的包名时，除 `dsh/dsh-crew/package.json` 的 `name` 外，还要同步 `client.js` 里两处包名：`window.__ModuleLoader__.load({ id: '@agent-flow/dsh-crew' })` 和配置页 slot registration 的 `key: '@agent-flow/dsh-crew'`（slot key 必须等于 bundle 包名，否则配置页不显示）。然后 `cd dsh/dsh-crew && npm publish`，对方直接用包名安装。
+
+### 安装之后
+
+```text
+插件 → Crew → 表格编辑四个角色的模型与人设 → 保存
+任意会话 → crew_explore / crew_architect / crew_planner / crew_reviewer
+```
+
+保存只影响下一次委派，无需重启。验证：调用一次 `crew_explore`，用返回的 child id 查看 `~/.dsh/sessions/<cwd转义>/<childId>/session.v4.jsonl.zstd` 中的 `request/header`（模型）与 `system/message`（人格）。卸载：**插件 → Installed plugins → Crew → Remove**，或 `dsh plugin --profile desktop remove @agent-flow/dsh-crew`。
+
+详细配置、HMR 验证与故障排查见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md)；兼容性与维护检查见 [`dsh/README.md`](dsh/README.md)。
 
 ## 工程维护
 
