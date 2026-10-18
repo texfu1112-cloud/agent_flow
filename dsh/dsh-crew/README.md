@@ -12,7 +12,7 @@ Written against DSH `0.2.1-rc.2`.
 | Preset | Purpose | Tools | Default route in this bundle |
 |---|---|---|---|
 | `crew` | The preset you select for a session: mirrors the shipped `standard` tool set and adds four role tools | all standard tools + `crew_explore` / `crew_architect` / `crew_planner` / `crew_reviewer` | inherits the session model |
-| `crew-explore` | Read-only exploration; returns a compact evidence capsule | `read`, `grep`/`glob`, no write/edit | `deepseek-official/deepseek-flash` |
+| `crew-explore` | Read-only exploration; returns a compact evidence capsule | `read`, `grep`/`glob`, no write/edit | `deepseek-account/deepseek-flash` |
 | `crew-architect` | One bounded technical decision | read-only | `openai-codex/gpt-5.6-sol` |
 | `crew-planner` | Implementation-ready plan | read-only | `openai-codex/gpt-5.6-sol` |
 | `crew-reviewer` | Reviews a bounded diff | read-only | `openai-codex/gpt-5.6-sol` |
@@ -69,6 +69,10 @@ inside the `crew` preset:
 Rules of thumb:
 
 - Use the exact provider id and model id shown in DSH's model picker.
+- Use the provider that actually holds credentials on that machine. Account login
+  registers `deepseek-account`; an API key registers `deepseek-official`. A route
+  listed in `allowedModels` can still be unavailable if its provider has no
+  credential.
 - Keep `crew_explore` on a cheap model; keep `crew_architect`, `crew_planner`, and
   `crew_reviewer` on a strong model.
 - Do **not** add `reasoningEffort` unless the adapter advertises that level for the

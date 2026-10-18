@@ -334,7 +334,7 @@
               toolName: crew_explore
               agentPreset: crew-explore
               agentOptions:
-                provider: deepseek-official
+                provider: deepseek-account
                 model: deepseek-flash
               maxDepth: 0
           - id: tool-subagent-crew-architect
