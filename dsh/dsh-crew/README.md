@@ -297,6 +297,43 @@ next `crew_architect` call after the config edit.
 - The bundle does not change Agent Teams behavior. Teammates inherit the Lead's
   model; use the `crew_*` tools from the Lead for model-differentiated work.
 
+## Working with Agent Teams
+
+The official **Agent Teams** bundle and this bundle are complementary; both can be
+enabled in the same profile. Use a teammate as a durable, multi-turn worker, and a
+Crew role as a one-shot, read-only specialist:
+
+| | Agent Teams teammate | Crew role child |
+|---|---|---|
+| Lifetime | durable session; can be steered, resumed, interrupted | one activation; returns a completion notice |
+| Model | inherits the Lead session's model | configured per role in **Plugins → Crew** |
+| Tools | the spawning member's composition (can edit files per the Lead's assignment) | fixed read-only `crew-role` boundary (no write/edit, no delegation) |
+| Best for | parallel implementation, long-running verification, owning a task-board item | cheap exploration, strong-model architecture/planning/review, a second opinion |
+
+Recommended loop for a non-trivial task:
+
+1. `crew_explore` — collect a compact evidence capsule (cheap model).
+2. `crew_architect` / `crew_planner` — strong-model decision or implementation plan
+   from that capsule (they do not scan the repository).
+3. `spawn_teammate` — one or more durable teammates implement the plan, with disjoint
+   write scopes recorded on the shared task board.
+4. `crew_reviewer` — review the bounded diff plus the task/verification evidence.
+5. The Lead runs the final checks, records the checkpoint, and reports.
+
+Coordination notes:
+
+- The four `crew_*` tools are **global**, so teammates can call them too; prefer
+  calling them from the Lead so role models stay a Lead-level routing decision.
+- Teammates inherit the Lead's model in this DSH build. Use a Crew role (not another
+  teammate) when a subtask needs a different model.
+- Teammates and Crew children share the same activation capacity
+  (`maxActiveSubagents`, default 8 per tree) and depth accounting: a Crew call from a
+  teammate is depth 2. Keep parallel fan-out deliberate.
+- Crew children are read-only, so never assign them implementation or test-fix work;
+  they also cannot own shared task-board items.
+- One DSH workflow per `TASK.md`: do not run an OpenCode `/work` session and a DSH
+  session against the same active task at the same time (see `AGENTS.md`).
+
 ## Uninstall
 
 Desktop: **Plugins → Installed plugins → Crew → Remove**.

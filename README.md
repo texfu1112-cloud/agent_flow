@@ -196,6 +196,10 @@ cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.3.0.tgz
 
 `@agent-flow` 是占位 scope。改成自己的包名时，除 `dsh/dsh-crew/package.json` 的 `name` 外，还要同步 `client.js` 里两处包名：`window.__ModuleLoader__.load({ id: '@agent-flow/dsh-crew' })` 和配置页 slot registration 的 `key: '@agent-flow/dsh-crew'`（slot key 必须等于 bundle 包名，否则配置页不显示）。然后 `cd dsh/dsh-crew && npm publish`，对方直接用包名安装。
 
+### 与 Agent Teams 配合
+
+DSH 的官方 Agent Teams 与本 bundle 互补，可在同一 profile 同时启用：**teammate** 是持久、可并行、能按 Lead 分配改文件的工作者；**Crew 角色**是一次性、只读、按角色换模型的顾问。推荐流程：`crew_explore` 收集证据 → `crew_architect`/`crew_planner` 定决策/计划 → `spawn_teammate` 实现（写范围记录在共享任务板上）→ `crew_reviewer` 审 diff → Lead 跑最终检查。注意：teammate 继承 Lead 的模型，需要换模型时用 Crew 角色；两者共享 `maxActiveSubagents` 容量与深度预算，不要把只读 Crew 角色当实现者或任务板 owner。详见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md#working-with-agent-teams)。
+
 ### 安装之后
 
 ```text
