@@ -38,3 +38,12 @@ Report and repair stale state instead of following it blindly.
 - Inspect one resolved agent: `opencode debug agent <name>`
 - Check compaction plugin syntax: `node --check .opencode/plugins/stateful-compaction.js`
 - Automated test suite: none yet; use the OpenCode debug commands as smoke tests
+
+## DeepSeek Harness
+
+OpenCode and DeepSeek Harness are independent clients for this repository. The OpenCode commands and the `Builder` ownership rule above apply to OpenCode sessions only.
+
+- DSH loads this file automatically as workspace instructions. Under DSH, the session's `Lead` takes the ownership role `Builder` has under OpenCode; teammates and delegated children do not edit implementation or state files unless the Lead assigns the task.
+- The optional DSH bundle lives in `dsh/dsh-crew/`; installation, presets, and model routing are documented in `dsh/README.md`.
+- DSH must not edit `.opencode/`, `opencode.json`, `TASK.md`, or `.opencode/state/CONTEXT.md` unless the user asks for an OpenCode workflow change.
+- Do not run an OpenCode `/work` session and a DSH `crew` session against the same `TASK.md` at the same time; it has a single active-task slot.

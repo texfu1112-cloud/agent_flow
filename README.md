@@ -133,6 +133,15 @@ cp .opencode/plugins/stateful-compaction.js ~/.config/opencode/plugins/
 - 压缩插件是幂等的，因此全局与项目同时加载时不会重复注入检查点。
 - 本仓库仍是唯一事实来源；修改 Agent、命令或插件后需要重新复制到全局并重启客户端。
 
+## DeepSeek Harness 组合包（可选）
+
+仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成预设和绑定模型的委派工具。它不修改 OpenCode 的任何配置，两者可以并存；安装、模型路由修改、验证与卸载见 [`dsh/README.md`](dsh/README.md)。
+
+```text
+插件 → 添加插件 → 安装第三方插件 → @agent-flow/dsh-crew
+新会话 → 预设选择器 → Crew
+```
+
 ## 工程维护
 
 该目录应作为独立 Git 工程维护。Agent、命令、插件、状态协议和文档都纳入版本控制；OpenCode 自动生成的 `.opencode/node_modules`、包清单与锁文件由根级 `.gitignore` 排除。
