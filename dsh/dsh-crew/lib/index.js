@@ -4,21 +4,28 @@
  * One Host entry (`crew-config`) owns everything that is configurable at
  * runtime:
  *
- * - a Schemastery Config whose volatile leaves hold four roles
- *   (explore / architect / planner / reviewer) with a provider, model,
- *   reasoning effort, and persona each;
- * - four global delegation tools (`crew_explore`, `crew_architect`,
- *   `crew_planner`, `crew_reviewer`) that read the live Config at execute
- *   time and start a managed child activation through `ctx.subagents`;
+ * - a Schemastery Config holding one uniform `roles` list. Every role carries
+ *   an id, display name, enabled flag, access boundary, provider, model,
+ *   reasoning effort, and persona. There is no built-in/custom split: the
+ *   initial role set is ordinary seeded data and every role is a peer.
+ * - one global delegation tool per enabled role (`crew_<id>`) that reads the
+ *   live Config at execute time and starts a managed child activation through
+ *   `ctx.subagents`.
  * - identity and model routing passed with every delegation: the persona is
  *   prepended to the child's task as its role preamble, the model route travels
- *   as `agentOptions`, and one shared read-only Agent Preset (`crew-role`)
- *   supplies the tool boundary. That makes built-in and user-defined roles
- *   behave identically; `request.persona` is still forwarded for forward
- *   compatibility, though this build ignores it in favour of the preamble.
+ *   as `agentOptions`, and the role's access selects one of two child boundaries:
+ *   `crew-role` (read-only, no commands) or `crew-writer` (read/write/edit plus
+ *   the shell). This DSH build ignores a per-request `toolFilter`, so the preset
+ *   is the enforced boundary.
  *
- * Volatile fields let a GUI save take effect on the next delegation without
- * reloading the plugin or restarting the process.
+ * The Orchestrator is the main session itself (the `crew` preset persona), so
+ * it is not a configurable delegation tool.
+ *
+ * Roles are ordinary (not volatile) config: saving the role list through the
+ * bundle's own route rewrites the profile patch and the Loader reloads this
+ * plugin, so enabling or disabling a role adds or removes its tool without
+ * restarting the app. Disabled roles keep their settings and can be re-enabled
+ * from the configuration page.
  *
  * @module @agent-flow/dsh-crew
  */
@@ -34,20 +41,41 @@ export const inject = ['tools', 'subagents'];
 /** HTTP path the browser half uses to read the model catalog (same origin). */
 const CATALOG_PATH = '/agent-flow/dsh-crew/catalog';
 
-/** HTTP path the browser half uses to read/write user-defined roles. */
+/** HTTP path the browser half uses to read/write the role list. */
 const ROLES_PATH = '/agent-flow/dsh-crew/roles';
 
-/** Read-only Agent Preset mounted by every user-defined role child. */
-const CUSTOM_ROLE_PRESET = 'crew-role';
+/** Upper bound on configured roles (each enabled role adds one global tool). */
+const MAX_ROLES = 12;
 
-/** Upper bound on user-defined roles (each adds one global tool). */
-const MAX_CUSTOM_ROLES = 8;
-
-/** Accepted user-defined role id; it becomes the `crew_<id>` tool suffix. */
+/** Accepted role id; it becomes the `crew_<id>` tool suffix. */
 const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 
-/** Limits reported to the browser editor. */
-const CUSTOM_ROLE_LIMITS = { maxRoles: MAX_CUSTOM_ROLES, idPattern: ROLE_ID_PATTERN.source };
+/** Ids that cannot become delegation tools. The main session is the Orchestrator. */
+const RESERVED_ROLE_IDS = new Set(['orchestrator']);
+
+/** Ordered access boundaries a role can request. */
+export const ACCESS_VALUES = ['read', 'exec', 'write'];
+
+/**
+ * Child boundary preset per access. `exec` shares the write preset because this
+ * DSH build cannot subtract write/edit from it per delegation; the Tester
+ * persona carries the "do not edit implementation code" rule instead.
+ */
+const CHILD_PRESET = {
+  read: 'crew-role',
+  exec: 'crew-writer',
+  write: 'crew-writer',
+};
+
+/** Every child boundary preset this bundle may mount for a role. */
+const CHILD_PRESETS = new Set(Object.values(CHILD_PRESET));
+
+/** One-line boundary description used in the model-facing tool description. */
+const ACCESS_BOUNDARY = {
+  read: 'the child is read-only (no write/edit tools, no commands)',
+  exec: 'the child gets read/write/edit and the shell but must not edit implementation code',
+  write: 'the child may read, write, and edit files and run commands',
+};
 
 /** Catalog cache lifetime; provider/model discovery is comparatively expensive. */
 const CATALOG_TTL_MS = 30_000;
@@ -111,238 +139,251 @@ async function buildCatalog(llm) {
   return groups;
 }
 
-/** Ordered role ids; the order is the GUI table order. */
-export const ROLE_NAMES = ['explore', 'architect', 'planner', 'reviewer'];
-
-/** HTTP path of the browser-facing model catalog route. */
-export { CATALOG_PATH, ROLES_PATH };
-
 /**
- * Per-role facts: the model-facing tool, the child preset that supplies the
- * read-only tool boundary, and the read-only tool filter forwarded in the
- * activation request.
+ * The initial role set. Every role is seeded at the same priority (same
+ * provider/model) and can be enabled, disabled, edited, or removed from the
+ * configuration page afterwards. These are ordinary config data, not special
+ * code paths: an installation that saves its own list replaces them entirely.
  */
-export const ROLE_INFO = {
-  explore: {
-    tool: 'crew_explore',
-    toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
-  },
-  architect: {
-    tool: 'crew_architect',
-    toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
-  },
-  planner: {
-    tool: 'crew_planner',
-    toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
-  },
-  reviewer: {
-    tool: 'crew_reviewer',
-    toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
-  },
-};
-
-/** Every delegation tool this plugin registers. */
-const CREW_TOOL_NAMES = ROLE_NAMES.map((role) => ROLE_INFO[role].tool);
-
-/** Default model routes; both ids belong to the built-in `deepseek-account` catalog. */
-const ROLE_DEFAULTS = {
-  explore: {
+export const ROLE_SEEDS = [
+  {
+    id: 'analyst',
+    name: '需求分析',
+    enabled: true,
+    access: 'read',
     provider: 'deepseek-account',
     model: 'deepseek-flash',
     reasoningEffort: '',
     persona:
-      'You are Explore, the read-only exploration role of the Crew. ' +
-      'Investigate exactly the question you are given and return a compact evidence capsule. ' +
-      'Search broadly enough to be correct, but never dump raw files or long search results. ' +
-      'Every conclusion must name the file and line range that supports it. ' +
-      'You cannot edit files or run mutating commands.',
+      '你是 Analyst（需求分析），负责把模糊诉求转化为可执行要求。' +
+      '梳理用户场景、业务规则、范围和优先级；识别歧义与冲突；制定可验证的验收标准。' +
+      '产出需求说明、验收标准与待确认问题。你只做分析与提问，不实现代码。',
   },
-  architect: {
+  {
+    id: 'explorer',
+    name: '探索',
+    enabled: true,
+    access: 'read',
     provider: 'deepseek-account',
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-flash',
     reasoningEffort: '',
     persona:
-      'You are Architect, the technical decision maker of the Crew. ' +
-      'Make one bounded, high-impact technical decision from the evidence you are given; ' +
-      'never scan the repository, and name a missing fact instead of guessing it. ' +
-      'Weigh boundaries, invariants, failure modes, tradeoffs, migration, and rollback. ' +
-      'Prefer the smallest decision consistent with the existing architecture. ' +
-      'You cannot modify files.',
+      '你是 Explorer（探索），基于证据查清现状和约束。' +
+      '阅读代码与资料，调查依赖和已有实现，定位问题，验证假设，识别约束与风险。' +
+      '产出带文件与行号证据的现状分析、定位结果和约束清单。你只读，不修改文件。',
   },
-  planner: {
+  {
+    id: 'architect',
+    name: '架构',
+    enabled: true,
+    access: 'read',
     provider: 'deepseek-account',
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-flash',
     reasoningEffort: '',
     persona:
-      'You are Planner, the implementation planner of the Crew. ' +
-      'Turn curated evidence into an implementation-ready plan: ordered edits with paths and symbols, ' +
-      'verification commands, edge cases, compatibility concerns, and rollback where applicable. ' +
-      'Prefer the smallest viable change and reuse existing abstractions. ' +
-      'You cannot modify files.',
+      '你是 Architect（架构），制定系统结构和技术方案。' +
+      '设计模块边界、接口、数据结构和数据流；评估技术取舍；规划实施步骤。' +
+      '产出架构方案、接口约定和技术决策。你不修改文件，只给出可执行的方案。',
   },
-  reviewer: {
+  {
+    id: 'designer',
+    name: '设计',
+    enabled: true,
+    access: 'write',
     provider: 'deepseek-account',
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-flash',
     reasoningEffort: '',
     persona:
-      'You are Reviewer, the reviewer of the Crew. ' +
-      'Review only the diff and task context you are given, never the whole repository. ' +
-      'Report findings as blocking issues, non-blocking suggestions, and verification gaps; ' +
-      'cite a file and line for every finding and state what evidence would change your conclusion. ' +
-      'You cannot edit files.',
+      '你是 Designer（设计），定义用户如何理解和使用产品。' +
+      '设计用户流程、信息结构、交互和视觉；覆盖加载、空白、错误等状态；考虑可访问性。' +
+      '产出设计方案、交互规范与页面状态说明。' +
+      '你可以在工作区内创建和修改设计产物（如 HTML/CSS、原型、设计规范文档），' +
+      '但不要改动业务实现逻辑，不提交或推送。',
   },
-};
+  {
+    id: 'executor',
+    name: '执行',
+    enabled: true,
+    access: 'write',
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    reasoningEffort: '',
+    persona:
+      '你是 Executor（执行），将需求和方案落实为具体成果。' +
+      '按批准的方案实现功能、修改代码或产物，完成必要的开发自测，并修复测试与审查发现的问题。' +
+      '产出实现成果、自测结果与变更说明。你可以读写工作区文件并运行命令；' +
+      '严格限定在分配范围内，不擅自扩大改动，不提交或推送。',
+  },
+  {
+    id: 'tester',
+    name: '测试',
+    enabled: true,
+    access: 'exec',
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    reasoningEffort: '',
+    persona:
+      '你是 Tester（测试），独立验证实际行为是否满足要求。' +
+      '设计并执行测试，覆盖正常、异常和边界场景，报告可复现的缺陷，验证修复并执行回归。' +
+      '产出测试用例、缺陷报告与测试结论。你可以读取文件并执行命令，但不修改实现代码。',
+  },
+  {
+    id: 'reviewer',
+    name: '审查',
+    enabled: true,
+    access: 'read',
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    reasoningEffort: '',
+    persona:
+      '你是 Reviewer（审查），独立评估成果的质量与风险。' +
+      '审查实现和方案，检查正确性、可维护性、安全性及需求遗漏，评估测试证据是否充分。' +
+      '产出审查意见、问题分级与审查结论。你只读，不修改文件。',
+  },
+];
 
-/**
- * Schemastery config for one role. Every field is volatile: the Loader keeps
- * the parsed reference stable and updates its value in place when the settings
- * form writes a new accepted value.
- * @param {object} defaults - initial provider/model/effort/persona values.
- */
-function roleSchema(defaults) {
-  return z
-    .object({
-      provider: z.string().default(defaults.provider).volatile(),
-      model: z.string().default(defaults.model).volatile(),
-      reasoningEffort: z.string().default(defaults.reasoningEffort).volatile(),
-      persona: z.string().default(defaults.persona).volatile(),
-    })
-    .default({});
+/** Copy the seed list so schema defaults and callers never share one array. */
+export function seedRoles() {
+  return ROLE_SEEDS.map((role) => ({ ...role }));
 }
 
 /**
- * Schema of one user-defined role. These fields are ordinary (not volatile):
- * adding or editing a role changes the registered tool set, so the Loader
- * reloads this plugin and the next delegation uses the new definitions. The
- * four built-in roles stay volatile because editing their routes/persona must
- * not remount the tools.
+ * Schemastery config for one role. Every field is ordinary config (not
+ * volatile): adding, removing, enabling, or disabling a role changes the
+ * registered tool set, so the Loader reloads this plugin on save.
  */
-const customRoleSchema = z.object({
-  id: z.string().required(),
+const roleSchema = z.object({
+  id: z.string().default(''),
   name: z.string().default(''),
-  provider: z.string().required(),
-  model: z.string().required(),
+  enabled: z.boolean().default(true),
+  access: z.string().default('read'),
+  provider: z.string().default('deepseek-account'),
+  model: z.string().default('deepseek-flash'),
   reasoningEffort: z.string().default(''),
   persona: z.string().default(''),
 });
 
 /**
- * Live Crew configuration. The four role objects are addressed by the
- * settings GUI as `roles.<role>.<field>` paths; every leaf is volatile so a
- * save applies without remounting this plugin. `customRoles` is ordinary
- * config written by the bundle's own `/agent-flow/dsh-crew/roles` route.
+ * Live Crew configuration. One uniform role list; the Orchestrator is the main
+ * session and is deliberately not a row here.
  */
 export const Config = z
   .object({
-    roles: z
-      .object({
-        explore: roleSchema(ROLE_DEFAULTS.explore),
-        architect: roleSchema(ROLE_DEFAULTS.architect),
-        planner: roleSchema(ROLE_DEFAULTS.planner),
-        reviewer: roleSchema(ROLE_DEFAULTS.reviewer),
-      })
-      .default({}),
-    customRoles: z.array(customRoleSchema).default([]),
+    roles: z.array(roleSchema).default(seedRoles()),
   })
   .default({});
 
 /**
- * Read one config leaf. Volatile leaves are references; ordinary values are
- * accepted too so a plain composition still works during migration.
- * @param {unknown} value - config leaf or volatile reference.
- * @returns {string} the current trimmed string value, or an empty string.
+ * Coerce a possibly-missing string to a trimmed string.
+ * @param {unknown} value - raw config or request value.
+ * @returns {string} the trimmed string, or ''.
  */
-function readString(value) {
-  const raw =
-    value !== null && typeof value === 'object' && typeof value.get === 'function'
-      ? value.get()
-      : value;
-  return typeof raw === 'string' ? raw.trim() : '';
+function textOf(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /**
- * Read one role's current values from the live config.
- * @param {object} config - parsed plugin Config.
- * @param {string} role - role id.
- */
-function readRole(config, role) {
-  const roleConfig = config?.roles?.[role];
-  return {
-    provider: readString(roleConfig?.provider),
-    model: readString(roleConfig?.model),
-    reasoningEffort: readString(roleConfig?.reasoningEffort),
-    persona: readString(roleConfig?.persona),
-  };
-}
-
-/**
- * Normalize one user-defined role from parsed config or a request body.
+ * Normalize one raw role. Invalid ids are rejected; other fields are coerced,
+ * with the access boundary mapped to the safe `read` value when unrecognized.
  * @param {unknown} raw - candidate role object.
- * @returns {object | undefined} the normalized role, or undefined when invalid.
+ * @returns {object | undefined} the normalized role, or undefined for a bad id.
  */
-function normalizeCustomRole(raw) {
+function normalizeRole(raw) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
-  const provider = typeof raw.provider === 'string' ? raw.provider.trim() : '';
-  const model = typeof raw.model === 'string' ? raw.model.trim() : '';
-  if (!ROLE_ID_PATTERN.test(id) || provider.length === 0 || model.length === 0) return undefined;
+  const id = textOf(raw.id);
+  if (!ROLE_ID_PATTERN.test(id)) return undefined;
+  const access = textOf(raw.access);
   return {
     id,
-    name: typeof raw.name === 'string' ? raw.name.trim() : '',
-    provider,
-    model,
-    reasoningEffort: typeof raw.reasoningEffort === 'string' ? raw.reasoningEffort.trim() : '',
-    persona: typeof raw.persona === 'string' ? raw.persona.trim() : '',
+    name: textOf(raw.name),
+    enabled: raw.enabled !== false,
+    access: ACCESS_VALUES.includes(access) ? access : 'read',
+    provider: textOf(raw.provider),
+    model: textOf(raw.model),
+    reasoningEffort: textOf(raw.reasoningEffort),
+    persona: typeof raw.persona === 'string' ? raw.persona : '',
   };
 }
 
 /**
- * Read the valid user-defined roles from the live config, de-duplicated and
- * bounded. Invalid hand-written entries are skipped with a warning.
+ * Read and validate one role from raw config for a specific id.
  * @param {object} config - parsed plugin Config.
- * @param {object} logger - plugin logger.
- * @returns {Array<object>} normalized roles.
+ * @param {string} id - role id.
+ * @returns {object | undefined} the normalized role.
  */
-function customRolesOf(config, logger) {
-  const list = Array.isArray(config?.customRoles) ? config.customRoles : [];
-  const seen = new Set(ROLE_NAMES);
+function findRole(config, id) {
+  const list = Array.isArray(config?.roles) ? config.roles : [];
+  for (const raw of list) {
+    const role = normalizeRole(raw);
+    if (role !== undefined && role.id === id) return role;
+  }
+  return undefined;
+}
+
+/**
+ * Read the valid roles from the live config, de-duplicated and bounded.
+ * Invalid hand-written entries are skipped; an invalid access boundary falls
+ * back to the safe read-only value.
+ * @param {object} config - parsed plugin Config.
+ * @param {object} [logger] - plugin logger for warnings.
+ * @returns {Array<object>} normalized roles in configured order.
+ */
+function rolesOf(config, logger) {
+  const list = Array.isArray(config?.roles) ? config.roles : [];
+  const seen = new Set();
   const roles = [];
   for (const entry of list) {
-    const role = normalizeCustomRole(entry);
+    const role = normalizeRole(entry);
     if (role === undefined) {
-      logger?.warn('crew-config: skipping an invalid custom role (id must match %s; provider/model required)', ROLE_ID_PATTERN.source);
+      logger?.warn('crew-config: skipping a role whose id must match %s', ROLE_ID_PATTERN.source);
+      continue;
+    }
+    if (RESERVED_ROLE_IDS.has(role.id)) {
+      logger?.warn('crew-config: skipping reserved role id "%s"', role.id);
       continue;
     }
     if (seen.has(role.id)) {
-      logger?.warn('crew-config: skipping duplicate custom role "%s"', role.id);
+      logger?.warn('crew-config: skipping duplicate role "%s"', role.id);
       continue;
     }
     seen.add(role.id);
     roles.push(role);
-    if (roles.length >= MAX_CUSTOM_ROLES) break;
+    if (roles.length >= MAX_ROLES) {
+      if (list.length > MAX_ROLES) {
+        logger?.warn('crew-config: only the first %d configured roles are registered', MAX_ROLES);
+      }
+      break;
+    }
   }
   return roles;
 }
 
 /**
- * Validate a complete user-defined role list submitted by the browser editor.
+ * Validate a complete role list submitted by the browser editor.
  * @param {unknown} input - candidate list.
  * @returns {{ roles?: Array<object>, error?: string }} the accepted list or a message.
  */
-function validateCustomRoles(input) {
+function validateRoles(input) {
   if (!Array.isArray(input)) return { error: 'roles must be an array' };
-  if (input.length > MAX_CUSTOM_ROLES) return { error: `at most ${MAX_CUSTOM_ROLES} custom roles are supported` };
-  const seen = new Set(ROLE_NAMES);
+  if (input.length > MAX_ROLES) return { error: `at most ${MAX_ROLES} roles are supported` };
+  const seen = new Set();
   const roles = [];
   for (const [index, raw] of input.entries()) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
       return { error: `role ${index + 1}: expected an object` };
     }
-    const role = normalizeCustomRole(raw);
+    const role = normalizeRole(raw);
     if (role === undefined) {
-      return { error: `role ${index + 1}: "id" must match ${ROLE_ID_PATTERN.source} and provider/model must be non-empty` };
+      return { error: `role ${index + 1}: "id" must match ${ROLE_ID_PATTERN.source}` };
     }
+    if (RESERVED_ROLE_IDS.has(role.id)) return { error: `role id "${role.id}" is reserved` };
     if (seen.has(role.id)) return { error: `role id "${role.id}" is already used` };
+    if (role.provider.length === 0) return { error: `role "${role.id}": provider is required` };
+    if (role.model.length === 0) return { error: `role "${role.id}": model is required` };
+    const rawAccess = textOf(raw.access);
+    if (!ACCESS_VALUES.includes(rawAccess)) {
+      return { error: `role "${role.id}": access must be one of ${ACCESS_VALUES.join(', ')}` };
+    }
     const fields = [['name', 64], ['provider', 200], ['model', 200], ['reasoningEffort', 32], ['persona', 4000]];
     for (const [field, max] of fields) {
       if (role[field].length > max) return { error: `role "${role.id}": ${field} exceeds ${max} characters` };
@@ -354,23 +395,12 @@ function validateCustomRoles(input) {
 }
 
 /**
- * Read the four built-in role values as plain JSON (used when pinning the
- * complete config through the configuration editor).
- * @param {object} config - parsed plugin Config.
- */
-function plainRoles(config) {
-  const roles = {};
-  for (const role of ROLE_NAMES) roles[role] = readRole(config, role);
-  return roles;
-}
-
-/**
  * Buffer and parse one small JSON request body.
  * @param {object} req - Node request stream.
  * @param {number} limit - maximum accepted bytes.
  * @returns {Promise<any>} the parsed JSON value.
  */
-function readJsonBody(req, limit = 64 * 1024) {
+function readJsonBody(req, limit = 256 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
@@ -395,6 +425,70 @@ function readJsonBody(req, limit = 64 * 1024) {
 }
 
 /**
+ * Read one request header as a string.
+ * @param {object} req - Node request.
+ * @param {string} name - lowercase header name.
+ * @returns {string | undefined} the header value, or undefined when absent.
+ */
+function headerOf(req, name) {
+  const value = req?.headers?.[name];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return undefined;
+}
+
+/** Hostnames this bundle treats as the local machine. */
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Fence a raw webServer route. DSH's raw routes sit outside the `/api`
+ * Host/Origin fence and browser authentication, so this bundle applies its own
+ * minimal fence before reading or writing configuration:
+ *
+ * - a browser `Sec-Fetch-Site` other than `same-origin`/`none` is refused;
+ * - the `Host` authority must be loopback or the server's own advertised
+ *   origin, which defeats DNS rebinding that points another hostname at the
+ *   local listener;
+ * - a present `Origin` must match that authority (cross-origin CSRF).
+ *
+ * Callers additionally require an `application/json` media type on writes.
+ * @param {object} req - Node request.
+ * @param {object} webServer - the Host web server service.
+ * @returns {boolean} whether the request may use the route.
+ */
+function isTrustedRequest(req, webServer) {
+  const site = headerOf(req, 'sec-fetch-site');
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') return false;
+
+  const host = headerOf(req, 'host');
+  if (host === undefined) return false;
+  let hostname;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+
+  const origin = headerOf(req, 'origin');
+  if (origin !== undefined) {
+    try {
+      if (new URL(origin).host !== host) return false;
+    } catch {
+      return false;
+    }
+  }
+
+  if (LOOPBACK_HOSTNAMES.has(hostname)) return true;
+  let localHostname;
+  try {
+    localHostname = new URL(webServer.getOrigin()).hostname;
+  } catch {
+    localHostname = undefined;
+  }
+  return localHostname !== undefined && hostname === localHostname;
+}
+
+/**
  * Read one required, non-empty string argument.
  * @param {unknown} value - model-supplied argument.
  * @param {string} field - argument name for the diagnostic.
@@ -414,8 +508,8 @@ function requireText(value, field) {
  * `childDepth > maxDepth`. A literal `maxDepth: 0` therefore fails to start
  * the child from a top-level parent ("subagent depth 1 exceeds maxDepth 0").
  * What the Crew needs is the relative policy "the child may delegate zero
- * further levels" (the read-only role presets mount no delegation tools
- * anyway), so the absolute cap is the child's own depth:
+ * further levels" (the role presets mount no delegation tools anyway), so the
+ * absolute cap is the child's own depth:
  *
  *   maxDepth = parentDepth + 1 + 0
  *
@@ -431,145 +525,30 @@ function childMaxDepth(parent) {
 }
 
 /**
- * Build the model-facing tool for one role. The tool is deliberately thin:
- * the child preset supplies the read-only tool boundary, this tool supplies
- * the configured identity and model route, and the subagent runtime owns the
- * activation, completion notice, and cleanup.
+ * Build the model-facing delegation tool for one configured role.
  * @param {object} ctx - plugin context.
  * @param {object} config - live plugin Config.
- * @param {string} role - role id.
+ * @param {object} role - normalized role snapshot used for the tool description.
  */
 function defineRoleTool(ctx, config, role) {
-  const info = ROLE_INFO[role];
-  const purpose =
-    role === 'explore'
-      ? 'read-only repository exploration that returns an evidence capsule'
-      : role === 'architect'
-        ? 'one bounded architecture decision'
-        : role === 'planner'
-          ? 'an implementation-ready plan'
-          : 'a review of a bounded diff';
-  return {
-    name: info.tool,
-    description:
-      `Delegate one bounded task to the Crew ${role} role. ` +
-      `The child runs under the shared "${CUSTOM_ROLE_PRESET}" Agent Preset, which mounts only read-only ` +
-      `tools, and it uses the provider, model, reasoning effort, and persona currently saved in the Crew ` +
-      `configuration (Plugins → Crew). Use it for ${purpose}. ` +
-      `This tool starts an independently managed child and immediately returns its id; ` +
-      `the runtime notifies you when it finishes. Do not delegate writing, editing, or verification commands.`,
-    parameters: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        description: {
-          type: 'string',
-          description: 'A short (3-5 word) description of the delegated task, for display.',
-        },
-        prompt: {
-          type: 'string',
-          description:
-            'The complete, self-contained task for the child. It does not share this conversation, ' +
-            'so include every fact, question, and constraint it needs.',
-        },
-        cwd: {
-          type: 'string',
-          description:
-            'Optional initial child working directory. Relative paths resolve against your current ' +
-            'directory; omission inherits it.',
-        },
-      },
-      required: ['description', 'prompt'],
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', const: 'activation' },
-          subagentId: { type: 'string' },
-        },
-        required: ['kind', 'subagentId'],
-      },
-      render(_args, value) {
-        return [{ type: 'text', text: `started subagent ${value.subagentId}` }];
-      },
-    },
-    isConcurrencySafe: () => true,
-    async execute(args, exec) {
-      const parent = exec.agent;
-      if (parent === undefined) throw new Error(`crew: ${info.tool} requires a calling agent`);
-      const description = requireText(args?.description, 'description');
-      const prompt = requireText(args?.prompt, 'prompt');
-      if (args?.cwd !== undefined && (typeof args.cwd !== 'string' || args.cwd.length === 0)) {
-        throw new Error('crew: "cwd" must be a non-empty string when supplied');
-      }
-
-      const current = readRole(config, role);
-      if (current.provider.length === 0 || current.model.length === 0) {
-        throw new Error(
-          `crew: role "${role}" has no provider/model configured. ` +
-            `Open the bundle configuration page (Plugins → Crew) and save a provider and model for it.`,
-        );
-      }
-
-      const agentOptions = {
-        provider: current.provider,
-        model: current.model,
-        ...(current.reasoningEffort.length > 0
-          ? { reasoningEffort: current.reasoningEffort }
-          : {}),
-      };
-
-      const identity = current.persona.length > 0 ? current.persona : `You are ${role}, a built-in Crew role.`;
-      const started = await ctx.subagents.startActivation({
-        provider: 'spawn',
-        label: description,
-        delivery: 'parent',
-        signal: exec.signal,
-        request: {
-          prompt: [{ type: 'text', text: `${identity}\n\n${prompt}` }],
-          parent,
-          agentPreset: CUSTOM_ROLE_PRESET,
-          agentOptions,
-          // Forward-compatible request facts. This DSH build applies persona
-          // through the scoped prompt section installed on `agent/created`
-          // below; `toolFilter` remains declarative because the role preset
-          // already mounts only the read-only tools.
-          persona: current.persona,
-          toolFilter: info.toolFilter,
-          // Relative budget 0 below the child, expressed as the absolute cap
-          // this runtime actually interprets (see childMaxDepth()).
-          maxDepth: childMaxDepth(parent),
-          ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
-        },
-      });
-
-      return { kind: 'activation', subagentId: started.childId };
-    },
-  };
-}
-
-/**
- * Build the model-facing tool for one user-defined role. Unlike the four
- * built-in roles (whose preset carries no persona and whose persona is applied
- * per child), a user-defined role mounts the shared read-only `crew-role`
- * preset and carries its identity in the task preamble, because one preset id
- * cannot distinguish several custom roles.
- * @param {object} ctx - plugin context.
- * @param {object} role - normalized custom role.
- */
-function defineCustomRoleTool(ctx, role) {
   const toolName = `crew_${role.id}`;
   const display = role.name.length > 0 ? role.name : role.id;
+  const boundary = ACCESS_BOUNDARY[role.access];
+  const delegationLimits =
+    role.access === 'write'
+      ? 'The child may modify files: keep the task confined to the assigned scope.'
+      : role.access === 'exec'
+        ? 'The child may run verification commands; do not delegate implementation or file edits.'
+        : 'Do not delegate writing, editing, or verification commands.';
   return {
     name: toolName,
     description:
-      `Delegate one bounded task to the "${display}" Crew role (user-defined in the Crew configuration). ` +
-      `The child runs under the "${CUSTOM_ROLE_PRESET}" Agent Preset, which mounts only read-only tools, ` +
-      `and it uses the role's configured provider, model, reasoning effort, and persona. ` +
+      `Delegate one bounded task to the Crew "${display}" role (${role.id}). ` +
+      `The child runs under the shared "${CHILD_PRESET[role.access]}" Agent Preset, where ${boundary}. ` +
+      `It uses the provider, model, reasoning effort, and persona currently saved in the Crew ` +
+      `configuration (Plugins → Crew). ` +
       `This tool starts an independently managed child and immediately returns its id; ` +
-      `the runtime notifies you when it finishes. Do not delegate writing, editing, or verification commands.`,
+      `the runtime notifies you when it finishes. ${delegationLimits}`,
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -616,29 +595,58 @@ function defineCustomRoleTool(ctx, role) {
       if (args?.cwd !== undefined && (typeof args.cwd !== 'string' || args.cwd.length === 0)) {
         throw new Error('crew: "cwd" must be a non-empty string when supplied');
       }
+
+      const current = findRole(config, role.id);
+      if (current === undefined) {
+        throw new Error(
+          `crew: role "${role.id}" is no longer configured. ` +
+            `Open the bundle configuration page (Plugins → Crew) and review the role list.`,
+        );
+      }
+      if (!current.enabled) {
+        throw new Error(
+          `crew: role "${role.id}" is disabled. ` +
+            `Enable it on the bundle configuration page (Plugins → Crew) to delegate again.`,
+        );
+      }
+      if (current.provider.length === 0 || current.model.length === 0) {
+        throw new Error(
+          `crew: role "${role.id}" has no provider/model configured. ` +
+            `Open the bundle configuration page (Plugins → Crew) and save a provider and model for it.`,
+        );
+      }
+
       const agentOptions = {
-        provider: role.provider,
-        model: role.model,
-        ...(role.reasoningEffort.length > 0 ? { reasoningEffort: role.reasoningEffort } : {}),
+        provider: current.provider,
+        model: current.model,
+        ...(current.reasoningEffort.length > 0
+          ? { reasoningEffort: current.reasoningEffort }
+          : {}),
       };
-      const identity = role.persona.length > 0 ? role.persona : `You are ${display}, a user-defined Crew role.`;
-      const text = `${identity}\n\n${prompt}`;
+
+      const identity = current.persona.length > 0
+        ? current.persona
+        : `You are ${display}, a Crew role.`;
       const started = await ctx.subagents.startActivation({
         provider: 'spawn',
         label: description,
         delivery: 'parent',
         signal: exec.signal,
         request: {
-          prompt: [{ type: 'text', text }],
+          prompt: [{ type: 'text', text: `${identity}\n\n${prompt}` }],
           parent,
-          agentPreset: CUSTOM_ROLE_PRESET,
+          agentPreset: CHILD_PRESET[current.access],
           agentOptions,
-          persona: role.persona,
-          toolFilter: { allow: ['read', 'grep', 'glob', 'working_directory', 'load_workspace_dependencies'] },
+          // Forward-compatible request fact. This DSH build conveys identity
+          // through the role preamble above and ignores a request-level
+          // `toolFilter`; the child preset is the enforced tool boundary.
+          // Relative budget 0 below the child, expressed as the absolute cap
+          // this runtime actually interprets (see childMaxDepth()).
           maxDepth: childMaxDepth(parent),
           ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
         },
       });
+
       return { kind: 'activation', subagentId: started.childId };
     },
   };
@@ -692,6 +700,10 @@ export function apply(ctx, config) {
           });
           res.end(text);
         };
+        if (!isTrustedRequest(req, child.webServer)) {
+          send(403, { error: 'forbidden' });
+          return;
+        }
         if (req.method !== 'GET') {
           send(405, { error: 'method-not-allowed' });
           return;
@@ -703,9 +715,10 @@ export function apply(ctx, config) {
     }), 'crew-config: model catalog route');
   });
 
-  // Browser-side editor for user-defined roles. These are ordinary config (not
-  // volatile), so a save rewrites the complete entry through the configuration
-  // editor and the Loader reloads this plugin with the new tool set.
+  // Browser-side editor for the complete role list. Roles are ordinary config:
+  // a save rewrites this entry through the configuration editor, the Loader
+  // reloads the plugin, and the enabled role tools appear or disappear without
+  // an app restart.
   ctx.inject(['configEditor', 'webServer'], (child) => {
     child.effect(() => child.webServer.register({
       kind: 'exact',
@@ -720,17 +733,34 @@ export function apply(ctx, config) {
           });
           res.end(text);
         };
+        if (!isTrustedRequest(req, child.webServer)) {
+          send(403, { ok: false, error: 'forbidden' });
+          return;
+        }
         if (req.method === 'GET') {
-          send(200, { roles: customRolesOf(config, ctx.logger), limits: CUSTOM_ROLE_LIMITS });
+          send(200, {
+            roles: rolesOf(config, ctx.logger),
+            limits: {
+              maxRoles: MAX_ROLES,
+              idPattern: ROLE_ID_PATTERN.source,
+              access: ACCESS_VALUES,
+              reserved: [...RESERVED_ROLE_IDS],
+            },
+          });
           return;
         }
         if (req.method !== 'POST') {
           send(405, { ok: false, error: 'method-not-allowed' });
           return;
         }
+        const mediaType = headerOf(req, 'content-type') ?? '';
+        if (!mediaType.toLowerCase().startsWith('application/json')) {
+          send(415, { ok: false, error: 'content-type must be application/json' });
+          return;
+        }
         readJsonBody(req)
           .then((body) => {
-            const validated = validateCustomRoles(body === null || typeof body !== 'object' ? undefined : body.roles);
+            const validated = validateRoles(body === null || typeof body !== 'object' ? undefined : body.roles);
             if (validated.error !== undefined) {
               send(400, { ok: false, error: validated.error });
               return undefined;
@@ -738,38 +768,28 @@ export function apply(ctx, config) {
             const entry = child.configEditor.entries().find((row) => row.options.id === 'crew-config');
             if (entry === undefined) throw new Error('the crew-config entry is not addressable in this profile');
             return child.configEditor
-              .edit(entry, () => ({ roles: plainRoles(config), customRoles: validated.roles }))
+              .edit(entry, () => ({ roles: validated.roles }))
               .then(() => send(200, { ok: true, roles: validated.roles }));
           })
           .catch((error) => send(500, { ok: false, error: error instanceof Error ? error.message : String(error) }));
       },
-    }), 'crew-config: custom roles route');
+    }), 'crew-config: roles route');
   });
 
-  for (const role of ROLE_NAMES) {
+  const roles = rolesOf(config, ctx.logger);
+  for (const role of roles.filter((entry) => entry.enabled)) {
     ctx.effect(
       () => ctx.tools.register(defineRoleTool(ctx, config, role)),
-      `crew-config: ${ROLE_INFO[role].tool}`,
-    );
-  }
-
-  const customRoles = customRolesOf(config, ctx.logger);
-  for (const role of customRoles) {
-    ctx.effect(
-      () => ctx.tools.register(defineCustomRoleTool(ctx, role)),
       `crew-config: crew_${role.id}`,
     );
   }
-  // A Crew child must not see any Crew delegation tool, including the dynamic
-  // ones registered from the current custom-role list.
-  const crewToolDenyList = [...CREW_TOOL_NAMES, ...customRoles.map((role) => `crew_${role.id}`)];
 
-  // Apply the saved persona and hide the Crew delegation tools inside a Crew
-  // child. The four role presets own the read-only tool boundary; this adds
-  // the identity that the preset no longer carries and keeps a depth-capped
-  // child from seeing delegation tools it cannot use.
-  // Every Crew child mounts the shared read-only preset; keep the Crew
-  // delegation tools (built-in and dynamic) out of its tool surface.
+  // A Crew child must not see any Crew delegation tool. The deny filter checks
+  // names against the global/ancestor tool scope when it is registered, so it
+  // must name only currently registered tools: including a disabled role's
+  // absent name makes the whole restriction fail as an unknown tool.
+  const crewToolDenyList = roles.filter((role) => role.enabled).map((role) => `crew_${role.id}`);
+
   ctx.on('agent/created', ({ agent }) => {
     let preset;
     try {
@@ -778,7 +798,8 @@ export function apply(ctx, config) {
       ctx.logger.warn(`crew-config: could not read the created child's preset: ${String(error)}`);
       return;
     }
-    if (preset !== CUSTOM_ROLE_PRESET) return;
+    if (!CHILD_PRESETS.has(preset)) return;
+    if (crewToolDenyList.length === 0) return;
     try {
       agent.ctx.tools.restrict({ deny: crewToolDenyList });
     } catch (error) {
@@ -789,10 +810,11 @@ export function apply(ctx, config) {
     }
   });
 
+  const enabledCount = roles.filter((role) => role.enabled).length;
   ctx.logger.info(
-    'crew-config: registered %d built-in and %d custom role tools; every child mounts the read-only "%s" preset',
-    CREW_TOOL_NAMES.length,
-    customRoles.length,
-    CUSTOM_ROLE_PRESET,
+    'crew-config: registered %d of %d configured Crew role tools; child boundaries: %s',
+    enabledCount,
+    roles.length,
+    Object.entries(CHILD_PRESET).map(([access, preset]) => `${access}=${preset}`).join(', '),
   );
 }

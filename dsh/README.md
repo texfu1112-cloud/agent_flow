@@ -9,10 +9,10 @@ by OpenCode.
 
 | Path | Purpose |
 |---|---|
-| `dsh/dsh-crew/` | A self-contained DSH **bundle**: one Host plugin `crew-config` with live role configuration + one global delegation tool per role (four built-in + up to eight user-defined), a browser config page, one selectable `crew` preset, and one shared read-only `crew-role` boundary preset |
-| `dsh/dsh-crew/cordis.patch.yml` | The bundle payload: preset declarations, the read-only role boundaries, and the `crew-config` Host row |
-| `dsh/dsh-crew/lib/index.js` | Host half: Schemastery `Config`, the four `crew_*` tools, and the per-child persona hook |
-| `dsh/dsh-crew/client.js` | Browser half: the `plugins.bundle.config` table editor backed by `ctx.configForms` (hand-written `window.__ModuleLoader__` module, no build step) |
+| `dsh/dsh-crew/` | A self-contained DSH **bundle**: one Host plugin `crew-config` with one uniform, enable/disable role list + one global delegation tool per enabled role, a browser config page, one selectable `crew` preset carrying the Orchestrator persona, and two child boundary presets (`crew-role` read-only, `crew-writer` read/write/edit + commands) |
+| `dsh/dsh-crew/cordis.patch.yml` | The bundle payload: preset declarations, the read-only and write role boundaries, and the `crew-config` Host row |
+| `dsh/dsh-crew/lib/index.js` | Host half: Schemastery `Config` (one `roles` array), the tool per enabled role, and the role preamble/deny hook |
+| `dsh/dsh-crew/client.js` | Browser half: the `plugins.bundle.config` role table backed by `ctx.configForms` (hand-written `window.__ModuleLoader__` module, no build step) |
 | `dsh/dsh-crew/package.json` | Package manifest; `dsh.bundle.patch` and `dsh.client` are what make it a bundle with a GUI |
 
 ## Coexistence with the OpenCode workflow
@@ -22,7 +22,7 @@ The two clients are independent and can share this repository:
 | Concern | OpenCode | DeepSeek Harness |
 |---|---|---|
 | Entry config | `opencode.json`, `.opencode/` | `~/.dsh/profiles/<profile>/` (outside the repo) |
-| Role model | `.opencode/agents/*.md` | Agent presets + live Crew role config (this bundle) |
+| Role model | `.opencode/agents/*.md` | Agent presets + Crew role config (this bundle) |
 | State files | `TASK.md`, `.opencode/state/CONTEXT.md` | same files, if the Lead is instructed to use them |
 | Instructions | `AGENTS.md` loaded by OpenCode | `AGENTS.md` loaded automatically as workspace instructions |
 | Compaction checkpoint | `.opencode/plugins/stateful-compaction.js` | no equivalent plugin; project files remain the continuity layer |
@@ -48,7 +48,7 @@ Rules that keep them from stepping on each other:
 # Desktop: Plugins -> Add plugin -> Install third-party plugin
 #   folder:   /abs/path/to/agent_flow/dsh/dsh-crew   (local dev; run pnpm install there first)
 #   git:      git+https://github.com/texfu1112-cloud/agent_flow.git#<commit>&path:/dsh/dsh-crew
-#   tarball:  /abs/path/agent-flow-dsh-crew-0.3.0.tgz
+#   tarball:  /abs/path/agent-flow-dsh-crew-0.4.0.tgz
 #   npm name: @agent-flow/dsh-crew                    (after publishing)
 
 # CLI (same forms; folder path also works)
@@ -62,10 +62,11 @@ runtime dependency resolves from its own directory, so run `pnpm install` inside
 `dsh/dsh-crew` once before installing the bundle. Registry, Git, and tarball installs
 fetch `@deepseek-ai/schemastery` (public npm) automatically.
 
-After installation, the four `crew_*` tools are available in every session, and the
-bundle's own page under **Plugins → Crew** edits the role provider/model/effort/persona
-table live. See [`dsh-crew/README.md`](dsh-crew/README.md) for the full behavior,
-the HMR verification recipe, and uninstall.
+After installation, one `crew_*` tool exists per enabled role in every session, and the
+bundle's own page under **Plugins → Crew** edits the uniform role list: enable/disable,
+id/name, access boundary (read-only / run / write), provider, model, reasoning effort,
+and persona. See [`dsh-crew/README.md`](dsh-crew/README.md) for the full behavior,
+the toggle/HMR verification recipe, and uninstall.
 
 ## Sharing
 
@@ -83,9 +84,9 @@ Recipients do not need Node/pnpm installed themselves; DSH's Plugin Manager runs
 installation. They do need a credentialed provider; the shipped defaults use
 `deepseek-account` and can be changed in **Plugins → Crew** after installation.
 
-The preset ids are namespaced (`crew-*`) and the bundle never overrides the shipped
-`standard` preset, so it can coexist with other bundles, including the Agent Teams
-bundle.
+The preset ids are namespaced (`crew`, `crew-role`, `crew-writer`)
+and the bundle never overrides the shipped `standard` preset, so it can coexist with
+other bundles, including the Agent Teams bundle.
 
 ## Maintainer checks
 
@@ -98,7 +99,9 @@ ruby -ryaml -e '
   raise "expected one insert entry" unless doc.is_a?(Array) && doc.size == 1 && doc[0]["insert"]
   rows = doc[0]["insert"]
   presets = rows.select { |r| r["name"] == "@deepseek-ai/dsh-agent-preset" }
-  raise "expected 2 presets, got #{presets.size}" unless presets.size == 2
+  raise "expected 3 presets, got #{presets.size}" unless presets.size == 3
+  ids = presets.map { |r| r["config"]["id"] }.sort
+  raise "unexpected presets: #{ids}" unless ids == %w[crew crew-role crew-writer]
   raise "missing crew-config row" unless rows.any? { |r| r["id"] == "crew-config" && r["name"] == "@agent-flow/dsh-crew" }
   puts "ok: #{presets.size} presets + crew-config"
 '
@@ -106,13 +109,13 @@ python3 -c 'import json,sys; [json.load(open(p)) for p in sys.argv[1:]]; print("
   dsh/dsh-crew/package.json dsh/dsh-crew/locale/zh.json dsh/dsh-crew/locale/en.json
 node --check dsh/dsh-crew/lib/index.js
 node --check dsh/dsh-crew/client.js
-# Config defaults (run from dsh/dsh-crew so its node_modules resolves):
-(cd dsh/dsh-crew && node -e 'import("./lib/index.js").then((m) => {
+# Config defaults (run from the repository root; the bundle's node_modules resolves):
+node -e 'import("./dsh/dsh-crew/lib/index.js").then((m) => {
   const parsed = m.Config();
-  console.log("ok: schema", parsed.roles.architect.model.get(), parsed.roles.architect.persona.get().slice(0, 20));
-})')
+  console.log("ok: schema", parsed.roles.length, parsed.roles[0].id, parsed.roles[0].enabled);
+})'
 ```
 
 There is no automated test suite for the bundle; installation in a disposable
-profile plus a single `crew_explore` call (and inspecting the child session's
-`request/header` + `system/message`) is the end-to-end smoke test.
+profile plus a single enabled `crew_*` call (and inspecting the child session's
+`request/header` + `agentPreset`) is the end-to-end smoke test.

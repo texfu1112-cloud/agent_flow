@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Crew roles",
-    "description": "Configurable multi-model delegation: set the provider, model, reasoning effort, and persona for exploration, architecture, planning, and review, then delegate to each role from any session."
+    "description": "One uniform role list: the main session is the Orchestrator, and the sub-roles (Analyst, Explorer, Architect, Designer, Executor, Tester, Reviewer) can be enabled or disabled individually, each with its own model, access boundary, and persona."
   }
 }

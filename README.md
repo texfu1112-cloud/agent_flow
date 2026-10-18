@@ -135,7 +135,7 @@ cp .opencode/plugins/stateful-compaction.js ~/.config/opencode/plugins/
 
 ## DeepSeek Harness 组合包（可选）
 
-仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「便宜模型探索 + 强模型架构/计划/审查」固化成一个带 GUI 配置页的 Host 插件：所有角色共用一个只读边界 preset `crew-role`，模型/强度/人格按角色在委派时传入；四个内置角色（explore/architect/planner/reviewer）加上最多 8 个**自定义角色**（保存后生成 crew_<id> 工具）都在 **插件 → Crew** 页面里用表格编辑，预设列表只保留 Crew 与 Crew Role 两项，保存后下一次委派立即生效（volatile 配置，无需重启）；`crew_explore` / `crew_architect` / `crew_planner` / `crew_reviewer` 四个委派工具在所有会话中可用。它不修改 OpenCode 的任何配置，两者可以并存。
+仓库同时提供一个可选的 [DeepSeek Harness](https://deepseek.com) 组合包 [`dsh/dsh-crew`](dsh/dsh-crew/)，把「Orchestrator 主控 + 可开关的子角色」固化成一个带 GUI 配置页的 Host 插件：角色是一份**统一的列表**（不再区分内置/自定义），每行有启用开关、权限边界（只读 / 只读+执行 / 读+写）、provider、模型、推理强度与人设；初始种子是 7 个子角色（需求分析、探索、架构、设计、执行、测试、审查），全部使用同一模型路线（`deepseek-account` / `deepseek-flash`），之后可在 **插件 → Crew** 页面逐行开关和编辑。保存后插件自动重载，启用的角色生成 `crew_<id>` 工具、关闭的角色移除工具，下一次委派立即生效（无需重启应用）；主会话本身是 Orchestrator（`crew` 预设人设），不占角色表中的一行。子会话边界由两个 preset 强制：`crew-role`（只读）、`crew-writer`（读 + 写 + 执行命令）；预设列表为 Crew、Crew Role、Crew Writer 三项（DSH 的 preset 没有隐藏标志，子会话边界 preset 也会出现在选择器里）。Tester 与 Executor/Designer 共用 `crew-writer`，靠人设约束“不改实现代码”。它不修改 OpenCode 的任何配置，两者可以并存。
 
 ### 分享给别人安装
 
@@ -187,10 +187,10 @@ dsh plugin --profile desktop add 'git+https://github.com/texfu1112-cloud/agent_f
 维护者打包，把 `.tgz` 发给对方：
 
 ```sh
-cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.3.0.tgz
+cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.4.0.tgz
 ```
 
-对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.3.0.tgz`）。
+对方在 **添加插件** 里填该 tarball 的绝对路径（CLI：`dsh plugin --profile desktop add /abs/path/agent-flow-dsh-crew-0.4.0.tgz`）。
 
 **方式 D：发布到 npm（可选）**
 
@@ -198,16 +198,17 @@ cd dsh/dsh-crew && pnpm pack     # 生成 agent-flow-dsh-crew-0.3.0.tgz
 
 ### 与 Agent Teams 配合
 
-DSH 的官方 Agent Teams 与本 bundle 互补，可在同一 profile 同时启用：**teammate** 是持久、可并行、能按 Lead 分配改文件的工作者；**Crew 角色**是一次性、只读、按角色换模型的顾问。推荐流程：`crew_explore` 收集证据 → `crew_architect`/`crew_planner` 定决策/计划 → `spawn_teammate` 实现（写范围记录在共享任务板上）→ `crew_reviewer` 审 diff → Lead 跑最终检查。注意：teammate 继承 Lead 的模型，需要换模型时用 Crew 角色；两者共享 `maxActiveSubagents` 容量与深度预算，不要把只读 Crew 角色当实现者或任务板 owner。详见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md#working-with-agent-teams)。
+DSH 的官方 Agent Teams 与本 bundle 互补，可在同一 profile 同时启用：**teammate** 是持久、可并行、能按 Lead 分配改文件的工作者；**Crew 角色**是一次性、按角色换模型、按配置页选择权限边界的子 Agent。推荐流程（按角色定义）：`crew_analyst` 明确需求与验收 → `crew_explorer` 收集证据 → `crew_architect`/`crew_designer` 定技术与设计 → `crew_executor` 实现（或 `spawn_teammate` 做并行/长任务）→ `crew_tester` 执行测试 → `crew_reviewer` 审 diff → Lead/Orchestrator 跑最终检查并验收。注意：teammate 继承 Lead 的模型，需要换模型时用 Crew 角色；两者共享 `maxActiveSubagents` 容量与深度预算；Crew 子 Agent 不能拥有共享任务板条目，任务板仍由 Lead 或 teammate 持有。详见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md#working-with-agent-teams)。
 
 ### 安装之后
 
 ```text
-插件 → Crew → 表格编辑四个角色的模型与人设 → 保存
-任意会话 → crew_explore / crew_architect / crew_planner / crew_reviewer
+插件 → Crew → 勾选/取消启用、编辑权限/模型/人设 → 保存（插件自动重载）
+任意会话 → crew_analyst / crew_explorer / crew_architect / crew_designer /
+          crew_executor / crew_tester / crew_reviewer
 ```
 
-表格里的 provider / model / 推理强度是下拉框：由 bundle 自带的 Host 路由读取实时模型目录（带「自定义…」可切回手输）；目录读取失败时自动退回内置 DeepSeek 选项，表格下方有状态提示。保存只影响下一次委派，无需重启。验证：调用一次 `crew_explore`，用返回的 child id 查看 `~/.dsh/sessions/<cwd转义>/<childId>/session.v4.jsonl.zstd` 中的 `request/header`（模型）与 `system/message`（人格）。卸载：**插件 → Installed plugins → Crew → Remove**，或 `dsh plugin --profile desktop remove @agent-flow/dsh-crew`。
+表格里的 provider / model / 推理强度是下拉框：由 bundle 自带的 Host 路由读取实时模型目录（带「自定义…」可切回手输）；目录读取失败时自动退回内置 DeepSeek 选项，表格下方有状态提示。启用/关闭或修改角色后保存只影响后续组成，无需重启应用；禁用只是移除工具，角色配置仍保留。验证：调用一次启用的 `crew_*` 工具，用返回的 child id 查看 `~/.dsh/sessions/<cwd转义>/<childId>/session.v4.jsonl.zstd` 中的 `request/header`（模型）、`agentPreset`（权限边界）与任务 prompt（角色人格）。Orchestrator 人设在 `crew` 预设里，主会话需要在预设选择器里选 **Crew** 才会带上这套流程指导；角色工具本身是全局的。卸载：**插件 → Installed plugins → Crew → Remove**，或 `dsh plugin --profile desktop remove @agent-flow/dsh-crew`。
 
 详细配置、HMR 验证与故障排查见 [`dsh/dsh-crew/README.md`](dsh/dsh-crew/README.md)；兼容性与维护检查见 [`dsh/README.md`](dsh/README.md)。
 

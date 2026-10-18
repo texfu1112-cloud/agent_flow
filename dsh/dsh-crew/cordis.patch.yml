@@ -1,21 +1,20 @@
-# dsh-crew — configurable Crew roles: one Host plugin, one shared role boundary.
+# dsh-crew — configurable Crew roles: one Host plugin, three child boundaries.
 #
 # Loaded as a DSH bundle patch: `package.json` declares `dsh.bundle.patch`.
 #
 # Layout:
-#   - `crew-config` (Host plugin `@agent-flow/dsh-crew`) registers one global
-#     delegation tool per role — the four built-in roles plus up to eight
-#     user-defined roles — and owns the live configuration (provider, model,
-#     reasoningEffort, persona per role). Built-in role fields are volatile and
-#     apply to the next delegation without a restart; user-defined roles are
-#     ordinary config and reload the plugin on save.
-#   - `crew-role` is the single child-only preset every Crew child mounts. It is
-#     only the read-only tool boundary: identity (persona) and model routing are
-#     passed with each delegation (persona as the task preamble, model as
-#     `agentOptions`), so built-in and user-defined roles behave identically.
+#   - `crew-config` (Host plugin `@agent-flow/dsh-crew`) owns one uniform `roles`
+#     list (provider, model, reasoningEffort, persona, enabled flag, access
+#     boundary per role) and registers one global delegation tool per enabled
+#     role. Roles are ordinary config: a save reloads this plugin, so enabling
+#     or disabling a role adds or removes its tool without an app restart.
+#   - `crew-role` is the read-only child boundary; `crew-writer` adds write/edit
+#     and the shell for implementation, design, and test roles. Identity
+#     (persona) and model routing travel with each delegation (persona as the
+#     task preamble, model as `agentOptions`).
 #   - `crew` is a selectable preset that mirrors the shipped `standard` preset's
-#     tool set and adds the delegation guidance; the role tools themselves are
-#     global and available in every preset.
+#     tool set and carries the Orchestrator persona (the main session); the role
+#     tools themselves are global and available in every preset.
 #
 # This bundle never overrides the shipped `standard` preset.
 #
@@ -27,12 +26,11 @@
       config:
         id: crew-role
         name: Crew Role
-        description: Child-only read-only tool boundary mounted by every Crew delegation, built-in or user-defined.
+        description: Read-only child boundary for Crew roles that only need evidence work (no write/edit, no commands).
         order: 34
         plugins:
-          # Every Crew child (built-in or user-defined role) mounts this read-only
-          # boundary. Identity/persona and the model route travel with each
-          # delegation, so this preset carries no persona row.
+          # Read-only Crew children. Identity/persona and the model route travel
+          # with each delegation, so this preset carries no persona row.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -65,24 +63,73 @@
                   thresholdChars: 8192
                   headChars: 4096
                   tailChars: 1024
+    - id: preset-crew-writer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: crew-writer
+        name: Crew Writer
+        description: Read/write child boundary for Crew roles that implement, design files, or write and run tests.
+        order: 35
+        plugins:
+          # Write-capable Crew children (Executor, Designer, Tester). The role
+          # persona carries the behavioral limits (e.g. Tester must not edit the
+          # implementation); the preset only guarantees the tools.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 32768
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: false
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
     - id: preset-crew
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: crew
         name: Crew
-        description: Standard tool set plus model-configurable Crew role delegation (explore, architect, planner, reviewer).
+        description: Standard tool set plus the Orchestrator role and configurable Crew role delegation (Analyst, Explorer, Architect, Designer, Executor, Tester, Reviewer).
         order: 20
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are a coding agent powered by the {{model}} model.
-                Delegate read-only exploration to crew_explore, architecture decisions to crew_architect,
-                implementation plans to crew_planner, and diff review to crew_reviewer.
-                Those tools use the role models and personas saved on the bundle's configuration page
-                (Plugins → Crew). Do the implementation yourself; do not delegate writing, editing,
-                or verification commands.
+                你是 Crew 的主控 Agent，由 {{model}} 模型驱动。
+                你是 Orchestrator（主控），对整体任务负责：理解用户目标；拆分任务；按需选择并委派角色；管理上下文与依赖；协调分歧；统一与用户沟通；验收交付。
+                委派工具由 Crew 配置页（Plugins → Crew）动态启用或关闭：crew_analyst（需求分析）、crew_explorer（探索）、crew_architect（架构）、crew_designer（设计）、crew_executor（执行）、crew_tester（测试）、crew_reviewer（审查）。这些工具使用配置页保存的模型与人设；子会话按角色获得只读、可执行或可写的工具边界。
+                协作流程：需求与探索（Analyst、Explorer）→ 方案与设计（Architect、Designer，Tester 提前参与；Designer 可创建和修改 UI、原型与规范文件）→ 实现与自测（Executor）→ 测试与审查（Tester、Reviewer，可并行）→ 修复与复验（Executor 修复，Tester/Reviewer 复验）→ 验收与交付（Orchestrator）。发现需求变化、技术约束或设计冲突时，回到对应阶段调整后再继续。
+                跳过角色不等于省略工作：需求已清晰可跳过 Analyst（由你核对）；上下文充分可跳过 Explorer（由 Executor 做必要的局部检查）；沿用既有结构的局部修改可跳过 Architect（由 Executor 遵循既有方案）；不涉及体验变化可跳过 Designer（按现有设计实现）；纯分析、设计或审查任务可跳过 Executor（由对应角色直接产出）；文案、样式等低风险小改动可由 Executor 自测替代 Tester；改动简单、影响小、易撤销且验证充分可跳过 Reviewer。涉及核心业务、权限、安全、支付、数据迁移或大范围重构时，保留独立的 Tester 和 Reviewer。
+                每次委派前判断该角色能否提供必要信息或独立验证，避免为凑齐流程启动所有角色。涉及用户需求与范围的取舍，由你统一与用户沟通；实现与验证的具体工作交给对应角色，你负责整合结果、验收并给出最终交付。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -198,11 +245,10 @@
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
 
-    # ---- Live Crew configuration and role-bound delegation tools --------------
-    # One Host entry owns the volatile role config (edited in the Web GUI on the
-    # bundle's Plugins page) and registers crew_explore / crew_architect /
-    # crew_planner / crew_reviewer globally. Each tool mounts one crew-* role
-    # preset (read-only tool boundary) and passes the saved provider, model,
-    # reasoningEffort, and persona in its subagent activation request.
+    # ---- Crew configuration and role-bound delegation tools -------------------
+    # One Host entry owns the uniform role list (edited in the Web GUI on the
+    # bundle's Plugins page) and registers one global crew_<id> tool per enabled
+    # role. A role selects its child preset through its access boundary:
+    # read = crew-role, exec/write = crew-writer.
     - id: crew-config
       name: '@agent-flow/dsh-crew'
